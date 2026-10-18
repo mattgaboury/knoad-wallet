@@ -52,6 +52,7 @@ export type IconName =
   | "replaced"
   | "dropped"
   | "star"
+  | "pencil"
   | "bookmark"
   | "history"
   | "explore";
@@ -132,6 +133,7 @@ const PATHS: Record<IconName, Mark[]> = {
   replaced: [{ d: "M7 8h11l-3-3" }, { d: "M17 16H6l3 3" }],
   dropped: [{ d: "M12 4 20 18H4L12 4z" }, { d: "M12 10v4M12 16h.01" }],
   star: [{ d: "M12 4.5 14.2 9l5 .6-3.7 3.4.9 4.9L12 15.6 7.6 17.9l.9-4.9L4.8 9.6l5-.6L12 4.5z" }],
+  pencil: [{ d: "M4 20h4l10-10-4-4L4 16v4z" }, { d: "M12 8l4 4" }],
   bookmark: [{ d: "M7 4h10v16l-5-3-5 3V4z" }],
   history: [{ d: "M4 12a8 8 0 1 0 2.2-5.5" }, { d: "M4 5v4h4" }, { d: "M12 8v4l3 2" }],
   explore: [{ d: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z" }, { d: "M14.5 9.5 11 13l3.5 1.5L13 11l1.5-1.5z" }],

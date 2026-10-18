@@ -1,4 +1,6 @@
-import { createPublicClient, http, parseAbiItem, toHex, type Address, type Hex } from "viem";
+import { createPublicClient, http, parseAbiItem, toCoinType, toHex, type Address, type Hex } from "viem";
+import { mainnet } from "viem/chains";
+import { normalize } from "viem/ens";
 import {
   CHAINS,
   SPEND_WINDOW_SLOT,
@@ -26,6 +28,25 @@ function client(chainId: number) {
       rpcUrls: { default: { http: [chain.rpcUrl] } },
     },
   });
+}
+
+/** Read-only. A Base send uses that name's Base address when the name has one. */
+export async function resolveName(name: string, chainId: number): Promise<Address | null> {
+  const text = name.trim();
+  if (!text.includes(".")) return null;
+  const rpc = chainEnv(1).rpcUrl;
+  if (!rpc) return null;
+  try {
+    const normalized = normalize(text);
+    const client = createPublicClient({ chain: mainnet, transport: http(rpc) });
+    if (chainId !== 1) {
+      const specific = await client.getEnsAddress({ name: normalized, coinType: toCoinType(chainId) });
+      if (specific) return specific;
+    }
+    return await client.getEnsAddress({ name: normalized });
+  } catch {
+    return null;
+  }
 }
 
 export function predictAccount(recovery: Address): Address {

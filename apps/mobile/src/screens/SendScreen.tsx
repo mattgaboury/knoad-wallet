@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { isAddress } from "viem";
+import { getAddress, isAddress } from "viem";
 import { CHAINS, formatUnits, tokensForChain } from "@knoad/wallet-core";
 import type { ActivityEntry } from "../activityLog";
-import { readNetworkConditions } from "../chain";
+import { readNetworkConditions, resolveName } from "../chain";
+import { loadContacts, removeContact, renameContact, saveContact, type SavedContact } from "../contacts";
 import { shortAddress, trimAmount, usd } from "../format";
 import type { Spot } from "../prices";
 import { isTestnet, theme } from "../theme";
@@ -22,7 +23,7 @@ export function SendScreen(props: {
   recent: ActivityEntry[];
   onChain: (chainId: number) => void;
   onScan: () => void;
-  onReview: (draft: { to: string; amount: string; symbol: string; fiat: string | null; fee: string | null }) => void;
+  onReview: (draft: { to: string; toName?: string; amount: string; symbol: string; fiat: string | null; fee: string | null }) => void;
   onBack: () => void;
 }) {
   const [to, setTo] = useState(props.initialTo);
@@ -31,14 +32,51 @@ export function SendScreen(props: {
   const [chainsOpen, setChainsOpen] = useState(false);
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [contactsOpen, setContactsOpen] = useState(false);
+  const [saved, setSaved] = useState<SavedContact[]>([]);
+  const [resolved, setResolved] = useState<string | null>(null);
+  const [lookup, setLookup] = useState<"idle" | "looking" | "missing">("idle");
+  const [pickedName, setPickedName] = useState<string | null>(null);
   const [feeWei, setFeeWei] = useState<bigint | null>(null);
   const choices = ["ETH", ...tokensForChain(props.chainId).filter((token) => !token.native).map((token) => token.symbol)];
   const holding = props.holdings.find((row) => row.chainId === props.chainId && row.symbol === symbol);
-  const valid = isAddress(to);
+  const valid = Boolean(resolved);
 
   useEffect(() => {
     setTo(props.initialTo);
+    setPickedName(null);
   }, [props.initialTo]);
+
+  useEffect(() => {
+    void loadContacts().then(setSaved);
+  }, [contactsOpen]);
+
+  useEffect(() => {
+    if (isAddress(to)) {
+      setResolved(getAddress(to));
+      setLookup("idle");
+      return;
+    }
+    const name = to.trim();
+    if (!name.includes(".")) {
+      setResolved(null);
+      setLookup("idle");
+      return;
+    }
+    setResolved(null);
+    setLookup("looking");
+    let live = true;
+    const timer = setTimeout(() => {
+      void resolveName(name, props.chainId).then((address) => {
+        if (!live) return;
+        setResolved(address);
+        setLookup(address ? "idle" : "missing");
+      });
+    }, 500);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [to, props.chainId]);
 
   useEffect(() => {
     if (!choices.includes(symbol)) setSymbol("ETH");
@@ -67,7 +105,14 @@ export function SendScreen(props: {
     setAmount(trimAmount(formatUnits(spend < 0n ? 0n : spend, holding.decimals)));
   }
 
-  const contacts = props.recent.filter((item) => item.to && isAddress(item.to)).filter((item, index, list) => list.findIndex((other) => other.to === item.to) === index);
+  const favorite = saved.find((item) => resolved && item.address.toLowerCase() === resolved.toLowerCase());
+  const typedName = !isAddress(to) && to.includes(".") ? to.trim() : null;
+  const displayName = favorite?.name ?? pickedName ?? typedName;
+  const nameHint = lookup === "looking" ? "Looking up the name." : lookup === "missing" ? "No address for this name." : resolved && typedName ? resolved : null;
+  const savedAddresses = new Set(saved.map((item) => item.address.toLowerCase()));
+  const contacts = props.recent
+    .filter((item) => item.to && isAddress(item.to) && !savedAddresses.has(item.to.toLowerCase()))
+    .filter((item, index, list) => list.findIndex((other) => other.to?.toLowerCase() === item.to?.toLowerCase()) === index);
 
   return (
     <View style={styles.wrap}>
@@ -88,21 +133,25 @@ export function SendScreen(props: {
       <Text style={styles.label}>To</Text>
       <Inset>
         <View style={styles.toRow}>
-          <Identicon seed={valid ? to : "knoad"} size={40} />
+          <Identicon seed={resolved ?? "knoad"} size={40} />
           <TextInput
             value={to}
-            onChangeText={setTo}
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="Address"
+            placeholder="Address or ENS name"
             placeholderTextColor={theme.textDim}
             style={styles.toInput}
+            onChangeText={(value) => {
+              setPickedName(null);
+              setTo(value);
+            }}
           />
           {valid ? <Icon name="checkCircle" size={18} color={theme.mint} /> : null}
           <IconButton name="scan" label="Scan address" onPress={props.onScan} />
-          <IconButton name="contacts" label="Recent recipients" onPress={() => setContactsOpen(true)} />
+          <IconButton name="contacts" label="Recipients" onPress={() => setContactsOpen(true)} />
         </View>
       </Inset>
+      {nameHint ? <Text style={lookup === "missing" ? styles.warn : styles.meta}>{nameHint}</Text> : null}
 
       <Text style={styles.label}>Asset</Text>
       <Pressable onPress={() => setAssetsOpen(true)}>
@@ -168,7 +217,7 @@ export function SendScreen(props: {
       <View style={styles.summary}>
         <Text style={styles.cardTitle}>Transaction summary</Text>
         <Summary label="Send" value={amount ? `${amount} ${symbol}` : "—"} hint={fiat ?? undefined} />
-        <Summary label="To" value={valid ? shortAddress(to) : "—"} />
+        <Summary label="To" value={resolved ? (displayName ? `${displayName} · ${shortAddress(resolved)}` : shortAddress(resolved)) : "—"} />
         <Summary label="Network" value={props.chainName} />
         <Summary label="Estimated network fee" value={feeText ? `${feeText} ETH` : "—"} hint={feeFiat ? `≈ ${feeFiat}` : undefined} />
       </View>
@@ -177,7 +226,7 @@ export function SendScreen(props: {
       <PrimaryButton
         label="Review Send →"
         disabled={!valid || !amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0 || tooMuch}
-        onPress={() => props.onReview({ to, amount, symbol, fiat, fee: feeText })}
+        onPress={() => resolved && props.onReview({ to: resolved, toName: displayName ?? undefined, amount, symbol, fiat, fee: feeText })}
       />
 
       <Picker
@@ -200,16 +249,17 @@ export function SendScreen(props: {
           setAssetsOpen(false);
         }}
       />
-      <Picker
+      <ContactsSheet
         open={contactsOpen}
-        title="Recent"
+        saved={saved}
+        recent={contacts}
         onClose={() => setContactsOpen(false)}
-        rows={contacts.map((item) => ({ id: item.to ?? "", label: shortAddress(item.to ?? "") }))}
-        empty="No recent recipients."
-        onPick={(id) => {
-          setTo(id);
+        onPick={(address, name) => {
+          setPickedName(name);
+          setTo(address);
           setContactsOpen(false);
         }}
+        onSaved={setSaved}
       />
     </View>
   );
@@ -224,6 +274,105 @@ function Summary(props: { label: string; value: string; hint?: string }) {
         {props.hint ? <Text style={styles.meta}>{props.hint}</Text> : null}
       </View>
     </View>
+  );
+}
+
+function ContactsSheet(props: {
+  open: boolean;
+  saved: SavedContact[];
+  recent: ActivityEntry[];
+  onClose: () => void;
+  onPick: (address: string, name: string | null) => void;
+  onSaved: (contacts: SavedContact[]) => void;
+}) {
+  const [naming, setNaming] = useState<{ address: string; name: string; ens?: string; editing: boolean } | null>(null);
+  async function commit() {
+    if (!naming?.name.trim()) return;
+    try {
+      const next = naming.editing
+        ? await renameContact(getAddress(naming.address), naming.name)
+        : await saveContact({ address: getAddress(naming.address), name: naming.name, ens: naming.ens });
+      props.onSaved(next);
+      setNaming(null);
+    } catch {
+      return;
+    }
+  }
+  return (
+    <Modal visible={props.open} transparent animationType="fade" onRequestClose={props.onClose}>
+      <Pressable style={styles.backdrop} onPress={props.onClose}>
+        <Pressable style={styles.sheet} onPress={() => undefined}>
+          <Text style={styles.cardTitle}>Recipients</Text>
+          <Text style={styles.label}>Favorites</Text>
+          {props.saved.length === 0 ? <Text style={styles.meta}>No favorites yet.</Text> : null}
+          {props.saved.map((item) => (
+            <View key={item.address} style={styles.pick}>
+              <Pressable style={styles.pickMain} onPress={() => props.onPick(item.address, item.name)}>
+                <View style={styles.assetCopy}>
+                  <Text style={styles.value}>{item.name}</Text>
+                  <Text style={styles.meta}>{shortAddress(item.address)}</Text>
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={() => setNaming({ address: item.address, name: item.name, ens: item.ens, editing: true })}
+                accessibilityLabel={`Rename ${item.name}`}
+                hitSlop={8}
+              >
+                <Icon name="pencil" size={18} color={theme.textMuted} />
+              </Pressable>
+            </View>
+          ))}
+          <Text style={styles.label}>Recent</Text>
+          {props.recent.length === 0 ? <Text style={styles.meta}>No recent recipients.</Text> : null}
+          {props.recent.map((item) => {
+            const address = item.to ?? "";
+            return (
+              <View key={address} style={styles.pick}>
+                <Pressable style={styles.pickMain} onPress={() => props.onPick(address, item.toName ?? null)}>
+                  <Text style={styles.value}>{item.toName ?? shortAddress(address)}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setNaming({ address, name: item.toName ?? "", ens: item.toName, editing: false })}
+                  accessibilityLabel="Save as favorite"
+                  hitSlop={8}
+                >
+                  <Icon name="star" size={18} color={theme.mint} />
+                </Pressable>
+              </View>
+            );
+          })}
+          {naming ? (
+            <View style={styles.nameBox}>
+              <TextInput
+                value={naming.name}
+                onChangeText={(name) => setNaming({ ...naming, name })}
+                placeholder="Name"
+                placeholderTextColor={theme.textDim}
+                style={styles.toInput}
+              />
+              <View style={styles.nameActions}>
+                <Pressable onPress={() => void commit()} accessibilityLabel="Save name">
+                  <Text style={styles.max}>Save</Text>
+                </Pressable>
+                {naming.editing ? (
+                  <Pressable
+                    onPress={() => {
+                      void removeContact(getAddress(naming.address)).then((next) => {
+                        props.onSaved(next);
+                        setNaming(null);
+                      });
+                    }}
+                    accessibilityLabel="Remove favorite"
+                  >
+                    <Text style={styles.warn}>Remove</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -290,4 +439,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
   sheet: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 12 },
   pick: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
+  pickMain: { flex: 1 },
+  nameBox: { gap: 8, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10 },
+  nameActions: { flexDirection: "row", gap: 16 },
 });
