@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { BackHandler, Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CHAINS, getChain, tokensForChain } from "@knoad/wallet-core";
 import { loadActivity, pendingRows, type ActivityEntry } from "./src/activityLog";
 import { bioFailureMessage, isBioCancel, readBioKey } from "./src/biometric";
@@ -18,7 +18,7 @@ import { ActivityScreen } from "./src/screens/ActivityScreen";
 import { ApproveScreen, type ApprovalDraft } from "./src/screens/ApproveScreen";
 import { AssetScreen } from "./src/screens/AssetScreen";
 import { BackupScreen } from "./src/screens/BackupScreen";
-import { BrowserDiscover, DappBrowser, type DappBrowserHandle } from "./src/screens/BrowserScreen";
+import { BrowserDiscover, DappBrowser, TabSwitcher, type BrowserTabView, type DappBrowserHandle } from "./src/screens/BrowserScreen";
 import { CreateScreen } from "./src/screens/CreateScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { PairScreen } from "./src/screens/PairScreen";
@@ -32,6 +32,7 @@ import { TradeScreen } from "./src/screens/TradeScreen";
 import { UnlockScreen } from "./src/screens/UnlockScreen";
 
 const AUTO_KEY = "knoad.activity.auto";
+const TABS_KEY = "knoad.browser.tabs";
 
 type Route =
   | { name: "tab"; tab: TabId }
@@ -39,7 +40,7 @@ type Route =
   | { name: "receive" }
   | { name: "asset"; symbol: string }
   | { name: "swap" }
-  | { name: "browser"; url: string }
+  | { name: "browser" }
   | { name: "pair" };
 
 type Gate =
@@ -73,7 +74,19 @@ function WalletApp() {
     chooseChain: wallet.chooseChain,
     submitCalls: wallet.submitCalls,
   });
+  const insets = useSafeAreaInsets();
   const [route, setRoute] = useState<Route>({ name: "tab", tab: "wallet" });
+  const [tabs, setTabs] = useState<BrowserTabView[]>([]);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [tabsReady, setTabsReady] = useState(false);
+  const [tabSheet, setTabSheet] = useState(false);
+  const forceNewTab = useRef(false);
+  const tabsTouched = useRef(false);
+  const tabSeq = useRef(0);
+  function nextTabId() {
+    tabSeq.current += 1;
+    return `tab-${Date.now()}-${tabSeq.current}`;
+  }
   useEffect(() => {
     if (route.name === "swap") commerce.prepare();
   }, [route.name]);
@@ -95,7 +108,7 @@ function WalletApp() {
   const accountRef = useRef(account);
   const pendingCode = useRef<string | null>(null);
   const seenLink = useRef<string | null>(null);
-  const browserRef = useRef<DappBrowserHandle>(null);
+  const browserRefs = useRef<Record<string, DappBrowserHandle | null>>({});
   pairRef.current = wallet.pair;
   setUriRef.current = wallet.setUri;
   accountRef.current = account;
@@ -203,8 +216,12 @@ function WalletApp() {
         wallet.showUnlock();
         return true;
       }
+      if (tabSheet) {
+        setTabSheet(false);
+        return true;
+      }
       if (route.name === "browser") {
-        if (browserRef.current?.goBack()) return true;
+        if (activeTab && browserRefs.current[activeTab]?.goBack()) return true;
         setRoute({ name: "tab", tab: "browser" });
         return true;
       }
@@ -219,9 +236,93 @@ function WalletApp() {
       return false;
     });
     return () => sub.remove();
-  }, [scan, bell, gate, route, wallet.screen, wallet.prompt, wallet.hasVault]);
+  }, [scan, bell, gate, route, wallet.screen, wallet.prompt, wallet.hasVault, tabSheet, activeTab]);
+
+  useEffect(() => {
+    let live = true;
+    void AsyncStorage.getItem(TABS_KEY).then((raw) => {
+      if (!live) return;
+      if (tabsTouched.current) {
+        setTabsReady(true);
+        return;
+      }
+      try {
+        const parsed = raw ? (JSON.parse(raw) as { url?: string; title?: string }[]) : [];
+        const next = parsed
+          .filter((item) => typeof item.url === "string" && item.url.startsWith("http"))
+          .slice(0, 6)
+          .map((item) => ({ id: nextTabId(), url: item.url as string, title: item.title || host(item.url as string) }));
+        if (next.length > 0) {
+          setTabs(next);
+          setActiveTab(next[0].id);
+        }
+      } catch {
+        // A bad save leaves the list empty.
+      }
+      setTabsReady(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!tabsReady) return;
+    void AsyncStorage.setItem(TABS_KEY, JSON.stringify(tabs.map(({ url, title }) => ({ url, title }))));
+  }, [tabs, tabsReady]);
+
+  useEffect(() => {
+    if (route.name === "browser" && tabsReady && tabs.length === 0) setRoute({ name: "tab", tab: "browser" });
+  }, [route.name, tabsReady, tabs.length]);
 
   if (!fontsLoaded || !wallet.booted) return <View style={styles.boot} />;
+
+  function openSite(url: string) {
+    tabsTouched.current = true;
+    const fresh = forceNewTab.current;
+    forceNewTab.current = false;
+    if (!fresh) {
+      const existing = tabs.find((tab) => host(tab.url) === host(url));
+      if (existing) {
+        setActiveTab(existing.id);
+        setTabSheet(false);
+        setRoute({ name: "browser" });
+        return;
+      }
+    }
+    let next = tabs;
+    if (tabs.length >= 6) {
+      const oldest = tabs.find((tab) => tab.id !== activeTab);
+      next = oldest ? tabs.filter((tab) => tab.id !== oldest.id) : tabs.slice(0, -1);
+    }
+    const tab = { id: nextTabId(), url, title: host(url) };
+    setTabs([...next, tab]);
+    setActiveTab(tab.id);
+    setTabSheet(false);
+    setRoute({ name: "browser" });
+  }
+
+  function closeTab(id: string) {
+    tabsTouched.current = true;
+    const index = tabs.findIndex((tab) => tab.id === id);
+    const next = tabs.filter((tab) => tab.id !== id);
+    setTabs(next);
+    if (next.length === 0) {
+      setActiveTab(null);
+      setTabSheet(false);
+      setRoute({ name: "tab", tab: "browser" });
+      return;
+    }
+    if (id === activeTab) setActiveTab(next[Math.min(Math.max(index, 0), next.length - 1)].id);
+  }
+
+  function notePage(id: string, url: string, title: string) {
+    setTabs((current) => {
+      const tab = current.find((item) => item.id === id);
+      if (!tab || (tab.url === url && tab.title === title)) return current;
+      return current.map((item) => (item.id === id ? { ...item, url, title } : item));
+    });
+  }
 
   const tab: TabId = route.name === "tab" ? route.tab : route.name === "browser" ? "browser" : "wallet";
   const showBar = !auth && !gate && !wallet.prompt && route.name !== "browser" && route.name !== "receive" && route.name !== "asset" && route.name !== "swap" && route.name !== "pair";
@@ -442,33 +543,62 @@ function WalletApp() {
       />
     );
   } else if (route.name === "browser") {
-    const site = wallet.sites.find((entry) => entry.url && host(entry.url) === host(route.url));
-    const origin = host(route.url);
     body = (
-      <View style={styles.browserWrap}>
-        <DappBrowser
-          ref={browserRef}
-          url={route.url}
-          address={account ?? ""}
-          connected={Boolean(site) || wallet.browserOrigins.includes(origin)}
-          message={wallet.pairBusy ? "Connecting to the site." : wallet.pairMessage}
-          onBack={() => setRoute({ name: "tab", tab: "browser" })}
-          onWalletConnect={(uri) => {
-            wallet.setUri(uri);
-            void wallet.pair(uri);
-          }}
-          onRpc={(message) => wallet.answerSiteRequest(message)}
-          onDisconnect={() => {
-            if (site) void wallet.disconnectSite(site.topic);
-            wallet.revokeBrowser(origin);
-          }}
-          onClose={() => setRoute({ name: "tab", tab: "security" })}
-        />
+      <View style={[styles.browserWrap, { paddingBottom: insets.bottom }]}>
+        {tabs.map((tab) => {
+          const origin = host(tab.url);
+          const site = wallet.sites.find((entry) => entry.url && host(entry.url) === origin);
+          const visible = tab.id === activeTab;
+          return (
+            <View key={tab.id} pointerEvents={visible ? "auto" : "none"} style={visible ? styles.browserPane : styles.browserHidden}>
+              <DappBrowser
+                ref={(handle) => {
+                  if (handle) browserRefs.current[tab.id] = handle;
+                  else delete browserRefs.current[tab.id];
+                }}
+                url={tab.url}
+                address={account ?? ""}
+                connected={Boolean(site) || wallet.browserOrigins.includes(origin)}
+                tabCount={tabs.length}
+                message={wallet.pairBusy ? "Connecting to the site." : wallet.pairMessage}
+                onBack={() => setRoute({ name: "tab", tab: "browser" })}
+                onTabs={() => setTabSheet(true)}
+                onPage={(url, title) => notePage(tab.id, url, title)}
+                onWalletConnect={(uri) => {
+                  wallet.setUri(uri);
+                  void wallet.pair(uri);
+                }}
+                onRpc={(message) => wallet.answerSiteRequest(message)}
+                onDisconnect={() => {
+                  if (site) void wallet.disconnectSite(site.topic);
+                  wallet.revokeBrowser(origin);
+                }}
+                onClose={() => setRoute({ name: "tab", tab: "security" })}
+              />
+            </View>
+          );
+        })}
         {gate || wallet.prompt ? (
           <ScrollView style={styles.approveOverlay} contentContainerStyle={styles.approveContent} keyboardShouldPersistTaps="handled">
             {approval}
           </ScrollView>
         ) : null}
+        <TabSwitcher
+          open={tabSheet}
+          tabs={tabs}
+          activeId={activeTab}
+          onClose={() => setTabSheet(false)}
+          onSelect={(id) => {
+            setActiveTab(id);
+            setTabSheet(false);
+          }}
+          onCloseTab={closeTab}
+          onNew={() => {
+            forceNewTab.current = true;
+            setTabSheet(false);
+            setRoute({ name: "tab", tab: "browser" });
+          }}
+        />
       </View>
     );
   } else if (route.name === "pair") {
@@ -529,7 +659,12 @@ function WalletApp() {
     body = (
       <BrowserDiscover
         sites={wallet.sites}
-        onOpen={(url) => setRoute({ name: "browser", url })}
+        openTabs={tabs.length}
+        onOpenTabs={() => {
+          forceNewTab.current = false;
+          if (activeTab) setRoute({ name: "browser" });
+        }}
+        onOpen={openSite}
         onScan={() => setScan(true)}
         onWalletConnect={(uri) => {
           wallet.setUri(uri);
@@ -683,7 +818,9 @@ function host(url: string): string {
 
 const styles = StyleSheet.create({
   boot: { flex: 1, backgroundColor: theme.bg },
-  browserWrap: { flex: 1 },
+  browserWrap: { flex: 1, position: "relative", backgroundColor: theme.bg },
+  browserPane: { flex: 1 },
+  browserHidden: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, opacity: 0 },
   approveOverlay: {
     position: "absolute",
     top: 0,

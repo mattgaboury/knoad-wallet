@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Alert, Image, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { BackHandler, Image, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import type { WebViewNavigation } from "react-native-webview";
 import { browseTarget, hostOf, shortAddress } from "../format";
@@ -8,8 +9,8 @@ import { isWalletConnectLink, pairingCodeFromLink } from "../pairingLink";
 import { PAGE_BRIDGE } from "../browserBridge";
 import type { SavedSite } from "../sites";
 import { theme } from "../theme";
-import { GlowCard, GlowIcon, IconButton } from "../ui/chrome";
-import { Icon } from "../ui/icons";
+import { Chip, GlowCard, GlowIcon, IconButton, PrimaryButton } from "../ui/chrome";
+import { Icon, type IconName } from "../ui/icons";
 
 const BOOKMARKS = "knoad.browser.bookmarks";
 const HISTORY = "knoad.browser.history";
@@ -27,7 +28,9 @@ type Mark = { url: string; title: string; at: number };
 
 export function BrowserDiscover(props: {
   sites: SavedSite[];
+  openTabs?: number;
   onOpen: (url: string) => void;
+  onOpenTabs?: () => void;
   onScan: () => void;
   onWalletConnect: (uri: string) => void;
   onSites: () => void;
@@ -81,6 +84,12 @@ export function BrowserDiscover(props: {
       </View>
       {segment === "discover" ? (
         <>
+          {props.openTabs && props.onOpenTabs ? (
+            <Pressable onPress={props.onOpenTabs} style={styles.openTabs} accessibilityLabel="Open tabs">
+              <Text style={styles.cardTitle}>{`Open tabs (${props.openTabs})`}</Text>
+              <Icon name="chevronRight" size={16} color={theme.mint} />
+            </Pressable>
+          ) : null}
           <GlowCard>
             <View style={styles.protectBlock}>
               <View style={styles.protect}>
@@ -164,19 +173,25 @@ export const DappBrowser = forwardRef<
     url: string;
     address: string;
     connected: boolean;
+    tabCount: number;
     message?: string;
     onBack: () => void;
+    onTabs: () => void;
+    onPage: (url: string, title: string) => void;
     onWalletConnect: (uri: string) => void;
     onRpc: (input: { method: string; params?: unknown; origin: string }) => Promise<unknown>;
     onDisconnect: () => void;
     onClose: () => void;
   }
 >(function DappBrowser(props, ref) {
+  const initialUrl = useRef(props.url);
   const [page, setPage] = useState(props.url);
   const [title, setTitle] = useState(hostOf(props.url));
   const [canBack, setCanBack] = useState(false);
   const [canForward, setCanForward] = useState(false);
   const [toast, setToast] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
   const webRef = useRef<WebView>(null);
   const pageRef = useRef(props.url);
   const domain = hostOf(page);
@@ -194,22 +209,54 @@ export const DappBrowser = forwardRef<
   );
 
   useEffect(() => {
-    if (!props.message) {
-      setToast("");
-      return;
-    }
+    if (!props.message) return;
     setToast(props.message);
     const timer = setTimeout(() => setToast(""), 5000);
     return () => clearTimeout(timer);
   }, [props.message]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setMenuOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [menuOpen]);
+
   function onNav(state: WebViewNavigation) {
     pageRef.current = state.url;
     setPage(state.url);
-    setTitle(state.title || hostOf(state.url));
+    const nextTitle = state.title || hostOf(state.url);
+    setTitle(nextTitle);
     setCanBack(state.canGoBack);
     setCanForward(state.canGoForward);
-    void rememberHistory(state.url, state.title || hostOf(state.url));
+    props.onPage(state.url, nextTitle);
+    void rememberHistory(state.url, nextTitle);
+  }
+
+  function flash(text: string) {
+    setToast(text);
+    setTimeout(() => setToast((current) => (current === text ? "" : current)), 2500);
+  }
+
+  async function openMenu() {
+    try {
+      const raw = await AsyncStorage.getItem(BOOKMARKS);
+      const current = raw ? (JSON.parse(raw) as Mark[]) : [];
+      setBookmarked(current.some((item) => item.url === pageRef.current));
+    } catch {
+      setBookmarked(false);
+    }
+    setMenuOpen(true);
+  }
+
+  async function onBookmark() {
+    const marked = bookmarked;
+    setMenuOpen(false);
+    await toggleBookmark(pageRef.current, title);
+    setBookmarked(!marked);
+    flash(marked ? "Bookmark removed." : "Bookmarked.");
   }
 
   function reply(id: string, body: { ok: boolean; result?: unknown; error?: string; code?: number }) {
@@ -249,31 +296,6 @@ export const DappBrowser = forwardRef<
     }
   }
 
-  function menu() {
-    const actions: { text: string; style?: "cancel" | "destructive"; onPress?: () => void }[] = [
-      { text: "Forward", onPress: () => { if (canForward) webRef.current?.goForward(); } },
-      { text: "Reload", onPress: () => webRef.current?.reload() },
-      { text: "Bookmark", onPress: () => void toggleBookmark(page, title) },
-      { text: "Share", onPress: () => void Share.share({ message: page }) },
-      { text: "Open outside KNOAD", onPress: () => void Linking.openURL(page) },
-    ];
-    if (props.connected) {
-      actions.push(
-        { text: "Manage site", onPress: props.onClose },
-        {
-          text: "Disconnect",
-          style: "destructive",
-          onPress: () => {
-            emit("accountsChanged", []);
-            props.onDisconnect();
-          },
-        },
-      );
-    }
-    actions.push({ text: "Close", style: "cancel" });
-    Alert.alert(domain, props.connected ? shortAddress(props.address) : undefined, actions);
-  }
-
   return (
     <View style={styles.browser}>
       <View style={styles.toolbar}>
@@ -285,7 +307,10 @@ export const DappBrowser = forwardRef<
           </Text>
           <View style={[styles.liveDot, { backgroundColor: props.connected ? theme.mint : theme.textDim }]} />
         </View>
-        <IconButton name="more" label="Page menu" onPress={menu} />
+        <Pressable onPress={props.onTabs} style={styles.tabsButton} accessibilityLabel="Tabs">
+          <Text style={styles.tabsCount}>{props.tabCount}</Text>
+        </Pressable>
+        <IconButton name="more" label="Page menu" onPress={() => void openMenu()} />
       </View>
       {toast ? (
         <Pressable onPress={() => setToast("")} style={styles.toast}>
@@ -294,8 +319,58 @@ export const DappBrowser = forwardRef<
           </Text>
         </Pressable>
       ) : null}
+      <PageMenu
+        open={menuOpen}
+        domain={domain}
+        url={page}
+        title={title}
+        connected={props.connected}
+        address={props.address}
+        canBack={canBack}
+        canForward={canForward}
+        bookmarked={bookmarked}
+        onClose={() => setMenuOpen(false)}
+        onBack={() => {
+          setMenuOpen(false);
+          if (canBack) webRef.current?.goBack();
+        }}
+        onForward={() => {
+          setMenuOpen(false);
+          if (canForward) webRef.current?.goForward();
+        }}
+        onReload={() => {
+          setMenuOpen(false);
+          webRef.current?.reload();
+        }}
+        onBookmark={() => void onBookmark()}
+        onShare={() => {
+          setMenuOpen(false);
+          void Share.share({ message: page });
+        }}
+        onOpenOutside={() => {
+          setMenuOpen(false);
+          void Linking.openURL(page);
+        }}
+        onManage={
+          props.connected
+            ? () => {
+                setMenuOpen(false);
+                props.onClose();
+              }
+            : undefined
+        }
+        onDisconnect={
+          props.connected
+            ? () => {
+                setMenuOpen(false);
+                emit("accountsChanged", []);
+                props.onDisconnect();
+              }
+            : undefined
+        }
+      />
       <WebView
-        source={{ uri: props.url }}
+        source={{ uri: initialUrl.current }}
         style={styles.web}
         onNavigationStateChange={onNav}
         ref={webRef}
@@ -332,6 +407,124 @@ export async function toggleBookmark(url: string, title: string): Promise<void> 
   const exists = current.some((item) => item.url === url);
   const next = exists ? current.filter((item) => item.url !== url) : [{ url, title, at: Date.now() }, ...current];
   await AsyncStorage.setItem(BOOKMARKS, JSON.stringify(next));
+}
+
+function PageMenu(props: {
+  open: boolean;
+  domain: string;
+  url: string;
+  title: string;
+  connected: boolean;
+  address: string;
+  canBack: boolean;
+  canForward: boolean;
+  bookmarked: boolean;
+  onClose: () => void;
+  onBack: () => void;
+  onForward: () => void;
+  onReload: () => void;
+  onBookmark: () => void;
+  onShare: () => void;
+  onOpenOutside: () => void;
+  onManage?: () => void;
+  onDisconnect?: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={props.open} transparent animationType="fade" onRequestClose={props.onClose}>
+      <Pressable style={styles.backdrop} onPress={props.onClose}>
+        <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={() => undefined}>
+          <View style={styles.menuHead}>
+            <Favicon name={props.title || props.domain} url={props.url} size={32} />
+            <View style={styles.menuCopy}>
+              <Text style={styles.menuDomain} numberOfLines={1}>
+                {props.domain}
+              </Text>
+              {props.connected ? (
+                <View style={styles.menuMeta}>
+                  <Text style={styles.domain}>{shortAddress(props.address)}</Text>
+                  <Chip label="Connected" />
+                </View>
+              ) : null}
+            </View>
+            <IconButton name="close" label="Close menu" onPress={props.onClose} />
+          </View>
+          <MenuRow icon="chevronLeft" label="Back" disabled={!props.canBack} onPress={props.onBack} />
+          <MenuRow icon="chevronRight" label="Forward" disabled={!props.canForward} onPress={props.onForward} />
+          <MenuRow icon="rotate" label="Reload" onPress={props.onReload} />
+          <MenuRow icon="star" label={props.bookmarked ? "Remove bookmark" : "Bookmark"} onPress={props.onBookmark} />
+          <MenuRow icon="share" label="Share" onPress={props.onShare} />
+          <MenuRow icon="external" label="Open outside KNOAD" onPress={props.onOpenOutside} />
+          {props.onManage && props.onDisconnect ? (
+            <>
+              <View style={styles.divider} />
+              <MenuRow icon="permissions" label="Manage site" onPress={props.onManage} />
+              <MenuRow icon="plug" label="Disconnect" danger onPress={props.onDisconnect} />
+            </>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function MenuRow(props: { icon: IconName; label: string; onPress: () => void; danger?: boolean; disabled?: boolean }) {
+  const color = props.danger ? theme.danger : props.disabled ? theme.textDim : theme.text;
+  const iconColor = props.danger ? theme.danger : props.disabled ? theme.textDim : theme.mint;
+  return (
+    <Pressable disabled={props.disabled} onPress={props.onPress} style={styles.menuRow} accessibilityLabel={props.label}>
+      <Icon name={props.icon} size={18} color={iconColor} />
+      <Text style={[styles.menuLabel, { color }]}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
+export type BrowserTabView = { id: string; url: string; title: string };
+
+export function TabSwitcher(props: {
+  open: boolean;
+  tabs: BrowserTabView[];
+  activeId: string | null;
+  onClose: () => void;
+  onSelect: (id: string) => void;
+  onCloseTab: (id: string) => void;
+  onNew: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={props.open} transparent animationType="fade" onRequestClose={props.onClose}>
+      <Pressable style={styles.backdrop} onPress={props.onClose}>
+        <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]} onPress={() => undefined}>
+          <View style={styles.menuHead}>
+            <Text style={styles.sheetTitle}>Tabs</Text>
+            <IconButton name="close" label="Close tabs" onPress={props.onClose} />
+          </View>
+          <ScrollView style={styles.tabList} keyboardShouldPersistTaps="handled">
+            {props.tabs.map((tab) => {
+              const active = tab.id === props.activeId;
+              return (
+                <View key={tab.id} style={[styles.tabRow, active ? styles.tabRowOn : null]}>
+                  <Pressable style={styles.tabMain} onPress={() => props.onSelect(tab.id)} accessibilityLabel={tab.title || hostOf(tab.url)}>
+                    <Favicon name={tab.title || hostOf(tab.url)} url={tab.url} size={28} />
+                    <View style={styles.menuCopy}>
+                      <Text style={styles.siteName} numberOfLines={1}>
+                        {tab.title || hostOf(tab.url)}
+                      </Text>
+                      <Text style={styles.domain} numberOfLines={1}>
+                        {hostOf(tab.url)}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <IconButton name="close" label={`Close ${tab.title || "tab"}`} onPress={() => props.onCloseTab(tab.id)} />
+                </View>
+              );
+            })}
+          </ScrollView>
+          <PrimaryButton label="New tab" icon="plus" onPress={props.onNew} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 }
 
 function Favicon(props: { name: string; url: string; icon?: string; size?: number }) {
@@ -396,6 +589,17 @@ const styles = StyleSheet.create({
   featureCopy: { flex: 1, minWidth: 0, gap: 2 },
   category: { color: theme.mint, fontFamily: theme.font.medium, fontSize: 10 },
   historyRow: { gap: 2, paddingVertical: 6 },
+  openTabs: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: theme.card,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.borderMint,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
   favicon: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.elevated },
   mono: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.elevated, alignItems: "center", justifyContent: "center" },
   monoText: { color: theme.mint, fontFamily: theme.font.bold },
@@ -415,7 +619,41 @@ const styles = StyleSheet.create({
   },
   domainText: { color: theme.mint, fontFamily: theme.font.medium, fontSize: 13, flex: 1 },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
+  tabsButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: theme.mint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabsCount: { color: theme.mint, fontFamily: theme.font.semibold, fontSize: 13 },
   toast: { paddingHorizontal: 14, paddingVertical: 6 },
   toastText: { color: theme.textMuted, fontFamily: theme.font.regular, fontSize: 13 },
   web: { flex: 1, backgroundColor: theme.bg },
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 4 },
+  sheetTitle: { color: theme.text, fontFamily: theme.font.bold, fontSize: 20, flex: 1 },
+  menuHead: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  menuCopy: { flex: 1, gap: 4 },
+  menuDomain: { color: theme.text, fontFamily: theme.font.semibold, fontSize: 16 },
+  menuMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
+  menuRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
+  menuLabel: { fontFamily: theme.font.medium, fontSize: 16 },
+  divider: { height: 1, backgroundColor: theme.border, marginVertical: 6 },
+  tabList: { maxHeight: 360 },
+  tabRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  tabRowOn: { borderColor: theme.mint },
+  tabMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
 });
