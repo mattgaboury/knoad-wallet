@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getAddress, isAddress } from "viem";
 import { CHAINS, formatUnits, tokensForChain } from "@knoad/wallet-core";
 import type { ActivityEntry } from "../activityLog";
@@ -10,7 +10,7 @@ import type { Spot } from "../prices";
 import { isTestnet, theme } from "../theme";
 import type { Holding } from "../useWallet";
 import { Identicon, Inset } from "../ui/bits";
-import { Chip, GlowCard, GlowIcon, IconButton, PrimaryButton } from "../ui/chrome";
+import { Chip, GhostButton, GlowCard, GlowIcon, IconButton, OutlineButton, PrimaryButton } from "../ui/chrome";
 import { Icon } from "../ui/icons";
 import { ChainMark, TokenMark } from "../ui/marks";
 
@@ -285,92 +285,148 @@ function ContactsSheet(props: {
   onPick: (address: string, name: string | null) => void;
   onSaved: (contacts: SavedContact[]) => void;
 }) {
-  const [naming, setNaming] = useState<{ address: string; name: string; ens?: string; editing: boolean } | null>(null);
+  const [draft, setDraft] = useState<{ address: string; name: string; ens?: string; editing: boolean } | null>(null);
+  const [notice, setNotice] = useState("");
+  const [formError, setFormError] = useState("");
+
+  useEffect(() => {
+    if (props.open) return;
+    setDraft(null);
+    setNotice("");
+    setFormError("");
+  }, [props.open]);
+
+  function close() {
+    setDraft(null);
+    props.onClose();
+  }
+
   async function commit() {
-    if (!naming?.name.trim()) return;
+    if (!draft?.name.trim()) return;
+    setFormError("");
     try {
-      const next = naming.editing
-        ? await renameContact(getAddress(naming.address), naming.name)
-        : await saveContact({ address: getAddress(naming.address), name: naming.name, ens: naming.ens });
+      const next = draft.editing
+        ? await renameContact(getAddress(draft.address), draft.name)
+        : await saveContact({ address: getAddress(draft.address), name: draft.name, ens: draft.ens });
       props.onSaved(next);
-      setNaming(null);
-    } catch {
-      return;
+      setNotice(draft.editing ? `Renamed to ${draft.name.trim()}.` : `Saved ${draft.name.trim()}.`);
+      setDraft(null);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Could not save that name.");
     }
   }
-  return (
-    <Modal visible={props.open} transparent animationType="fade" onRequestClose={props.onClose}>
-      <Pressable style={styles.backdrop} onPress={props.onClose}>
-        <Pressable style={styles.sheet} onPress={() => undefined}>
-          <Text style={styles.cardTitle}>Recipients</Text>
-          <Text style={styles.label}>Favorites</Text>
-          {props.saved.length === 0 ? <Text style={styles.meta}>No favorites yet.</Text> : null}
-          {props.saved.map((item) => (
-            <View key={item.address} style={styles.pick}>
-              <Pressable style={styles.pickMain} onPress={() => props.onPick(item.address, item.name)}>
-                <View style={styles.assetCopy}>
-                  <Text style={styles.value}>{item.name}</Text>
-                  <Text style={styles.meta}>{shortAddress(item.address)}</Text>
-                </View>
+
+  async function remove() {
+    if (!draft) return;
+    const next = await removeContact(getAddress(draft.address));
+    props.onSaved(next);
+    setNotice("Removed from favorites.");
+    setDraft(null);
+  }
+
+  const naming = draft ? (
+    <KeyboardAvoidingView behavior="padding" style={styles.sheetLift}>
+      <Pressable style={styles.sheet} onPress={() => undefined}>
+        <Pressable onPress={() => setDraft(null)} style={styles.backRow} accessibilityLabel="Back to recipients">
+          <Icon name="chevronLeft" size={18} color={theme.mint} />
+          <Text style={styles.max}>Recipients</Text>
+        </Pressable>
+        <Text style={styles.cardTitle}>{draft.editing ? "Rename favorite" : "Save as favorite"}</Text>
+        <Text style={styles.meta}>
+          {draft.editing ? "Change the name on this phone, or remove it." : "Give this address a name. It stays on this phone."}
+        </Text>
+        <View style={styles.nameTarget}>
+          <Identicon seed={draft.address} size={36} />
+          <View style={styles.assetCopy}>
+            <Text style={styles.value}>{shortAddress(draft.address)}</Text>
+            {draft.ens ? <Text style={styles.meta}>{draft.ens}</Text> : null}
+          </View>
+        </View>
+        <Text style={styles.label}>Name</Text>
+        <TextInput
+          value={draft.name}
+          autoFocus
+          autoCapitalize="words"
+          autoCorrect={false}
+          onChangeText={(name) => setDraft({ ...draft, name })}
+          onSubmitEditing={() => void commit()}
+          placeholder="Type a name"
+          placeholderTextColor={theme.textDim}
+          style={styles.nameInput}
+        />
+        {draft.name.trim() ? null : <Text style={styles.meta}>Type a name, then save.</Text>}
+        {formError ? <Text style={styles.warn}>{formError}</Text> : null}
+        <PrimaryButton label={draft.editing ? "Save name" : "Save favorite"} onPress={() => void commit()} disabled={!draft.name.trim()} />
+        {draft.editing ? (
+          <OutlineButton label="Remove favorite" tone="danger" onPress={() => void remove()} />
+        ) : (
+          <GhostButton label="Cancel" onPress={() => setDraft(null)} />
+        )}
+      </Pressable>
+    </KeyboardAvoidingView>
+  ) : (
+    <View style={styles.sheet}>
+      <Text style={styles.cardTitle}>Recipients</Text>
+      <Text style={styles.meta}>Tap a row to fill Send. Save stores a name for that address on this phone.</Text>
+      {notice ? <Text style={styles.savedNote}>{notice}</Text> : null}
+      <ScrollView style={styles.sheetScroll} keyboardShouldPersistTaps="handled">
+        <Text style={styles.label}>Favorites</Text>
+        {props.saved.length === 0 ? <Text style={styles.meta}>No favorites yet. Save one from Recent.</Text> : null}
+        {props.saved.map((item) => (
+          <View key={item.address} style={styles.pick}>
+            <Pressable style={styles.pickMain} onPress={() => props.onPick(item.address, item.name)}>
+              <View style={styles.assetCopy}>
+                <Text style={styles.value}>{item.name}</Text>
+                <Text style={styles.meta}>{shortAddress(item.address)}</Text>
+              </View>
+            </Pressable>
+            <Pressable
+              style={styles.rowAction}
+              onPress={() => {
+                setNotice("");
+                setFormError("");
+                setDraft({ address: item.address, name: item.name, ens: item.ens, editing: true });
+              }}
+              accessibilityLabel={`Rename ${item.name}`}
+            >
+              <Icon name="pencil" size={18} color={theme.mint} />
+              <Text style={styles.rowActionText}>Edit</Text>
+            </Pressable>
+          </View>
+        ))}
+        <Text style={styles.label}>Recent</Text>
+        {props.recent.length === 0 ? <Text style={styles.meta}>No recent recipients.</Text> : null}
+        {props.recent.map((item) => {
+          const address = item.to ?? "";
+          return (
+            <View key={address} style={styles.pick}>
+              <Pressable style={styles.pickMain} onPress={() => props.onPick(address, item.toName ?? null)}>
+                <Text style={styles.value}>{item.toName ?? shortAddress(address)}</Text>
+                {item.toName ? <Text style={styles.meta}>{shortAddress(address)}</Text> : null}
               </Pressable>
               <Pressable
-                onPress={() => setNaming({ address: item.address, name: item.name, ens: item.ens, editing: true })}
-                accessibilityLabel={`Rename ${item.name}`}
-                hitSlop={8}
+                style={styles.rowAction}
+                onPress={() => {
+                  setNotice("");
+                  setFormError("");
+                  setDraft({ address, name: item.toName ?? "", ens: item.toName, editing: false });
+                }}
+                accessibilityLabel="Save as favorite"
               >
-                <Icon name="pencil" size={18} color={theme.textMuted} />
+                <Icon name="star" size={18} color={theme.mint} />
+                <Text style={styles.rowActionText}>Save</Text>
               </Pressable>
             </View>
-          ))}
-          <Text style={styles.label}>Recent</Text>
-          {props.recent.length === 0 ? <Text style={styles.meta}>No recent recipients.</Text> : null}
-          {props.recent.map((item) => {
-            const address = item.to ?? "";
-            return (
-              <View key={address} style={styles.pick}>
-                <Pressable style={styles.pickMain} onPress={() => props.onPick(address, item.toName ?? null)}>
-                  <Text style={styles.value}>{item.toName ?? shortAddress(address)}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setNaming({ address, name: item.toName ?? "", ens: item.toName, editing: false })}
-                  accessibilityLabel="Save as favorite"
-                  hitSlop={8}
-                >
-                  <Icon name="star" size={18} color={theme.mint} />
-                </Pressable>
-              </View>
-            );
-          })}
-          {naming ? (
-            <View style={styles.nameBox}>
-              <TextInput
-                value={naming.name}
-                onChangeText={(name) => setNaming({ ...naming, name })}
-                placeholder="Name"
-                placeholderTextColor={theme.textDim}
-                style={styles.toInput}
-              />
-              <View style={styles.nameActions}>
-                <Pressable onPress={() => void commit()} accessibilityLabel="Save name">
-                  <Text style={styles.max}>Save</Text>
-                </Pressable>
-                {naming.editing ? (
-                  <Pressable
-                    onPress={() => {
-                      void removeContact(getAddress(naming.address)).then((next) => {
-                        props.onSaved(next);
-                        setNaming(null);
-                      });
-                    }}
-                    accessibilityLabel="Remove favorite"
-                  >
-                    <Text style={styles.warn}>Remove</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            </View>
-          ) : null}
-        </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+
+  return (
+    <Modal visible={props.open} transparent animationType="fade" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close}>
+        {naming}
       </Pressable>
     </Modal>
   );
@@ -438,8 +494,23 @@ const styles = StyleSheet.create({
   value: { color: theme.text, fontFamily: theme.font.medium, fontSize: 14 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
   sheet: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 12 },
+  sheetLift: { width: "100%", justifyContent: "flex-end" },
+  sheetScroll: { maxHeight: 420 },
   pick: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
   pickMain: { flex: 1 },
-  nameBox: { gap: 8, borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 10 },
-  nameActions: { flexDirection: "row", gap: 16 },
+  rowAction: { alignItems: "center", gap: 2, minWidth: 44, paddingVertical: 4 },
+  rowActionText: { color: theme.mint, fontFamily: theme.font.medium, fontSize: 11 },
+  backRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  nameTarget: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: theme.elevated, borderRadius: theme.radius.md, padding: 12 },
+  nameInput: {
+    color: theme.text,
+    backgroundColor: theme.elevated,
+    borderColor: theme.mint,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    padding: 14,
+    fontFamily: theme.font.medium,
+    fontSize: 18,
+  },
+  savedNote: { color: theme.mint, fontFamily: theme.font.medium, fontSize: 14 },
 });

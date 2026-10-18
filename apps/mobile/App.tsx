@@ -5,7 +5,7 @@ import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_7
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { CHAINS, getChain, tokensForChain } from "@knoad/wallet-core";
 import { loadActivity, pendingRows, type ActivityEntry } from "./src/activityLog";
-import { readBioKey } from "./src/biometric";
+import { bioFailureMessage, isBioCancel, readBioKey } from "./src/biometric";
 import { shortAddress } from "./src/format";
 import { pairingCodeFromLink } from "./src/pairingLink";
 import { loadSpot, type Spot } from "./src/prices";
@@ -79,6 +79,7 @@ function WalletApp() {
   }, [route.name]);
   const [gate, setGate] = useState<Gate | null>(null);
   const [gateError, setGateError] = useState("");
+  const approving = useRef(false);
   const [scan, setScan] = useState(false);
   const [bell, setBell] = useState(false);
   const [auto, setAuto] = useState(false);
@@ -246,12 +247,23 @@ function WalletApp() {
   }
 
   async function approveBio() {
+    if (approving.current) return;
+    approving.current = true;
     setGateError("");
     try {
-      if (wallet.bioOn) await readBioKey();
+      if (wallet.bioOn) {
+        try {
+          await readBioKey();
+        } catch (error) {
+          if (!isBioCancel(error)) setGateError(await bioFailureMessage());
+          return;
+        }
+      }
       await runGate();
     } catch (error) {
       setGateError(error instanceof Error ? error.message : "Could not approve.");
+    } finally {
+      approving.current = false;
     }
   }
 

@@ -63,7 +63,7 @@ import {
   BundlerRefusal,
 } from "@knoad/wallet-core";
 import { appendActivity, loadActivity, markActivity, patchActivity, pendingRows } from "./activityLog";
-import { clearBioKey, openWithHeldKey, readBioFlag, readBioKey, saveBioKey } from "./biometric";
+import { bioFailureMessage, clearBioKey, isBioCancel, openWithHeldKey, readBioFlag, readBioKey, saveBioKey } from "./biometric";
 import { DEFAULT_CHAIN_ID, WALLETCONNECT_PROJECT_ID, chainEnv } from "./config";
 import { predictAccount, chainRpc, readAccountFacts, readBalances, readDeployed, readGeneration, readHoldsListedTokens, readHotSigner, readNativeBalance, readUserOpLog } from "./chain";
 import { secureStoreKv, selectHotKeystore } from "./deviceKeys";
@@ -222,6 +222,7 @@ export function useWallet() {
   const [unlockMessage, setUnlockMessage] = useState("");
   const [unlockError, setUnlockError] = useState(false);
   const [unlockBusy, setUnlockBusy] = useState(false);
+  const unlocking = useRef(false);
   const heldKey = useRef<VaultKey | null>(null);
   const heldPassword = useRef("");
   const [record, setRecord] = useState<VaultRecord | null>(null);
@@ -1694,12 +1695,27 @@ export function useWallet() {
   }
 
   async function unlockWithBiometric(): Promise<void> {
-    if (unlockBusy) return;
+    if (unlocking.current) return;
+    unlocking.current = true;
     setUnlockBusy(true);
     setUnlockError(false);
-    setUnlockMessage("Waiting for this phone.");
+    setUnlockMessage("");
+    let held: VaultKey;
     try {
-      const held = await readBioKey();
+      held = await readBioKey();
+    } catch (error) {
+      unlocking.current = false;
+      setUnlockBusy(false);
+      if (isBioCancel(error)) {
+        setUnlockError(false);
+        setUnlockMessage("");
+        return;
+      }
+      setUnlockError(true);
+      setUnlockMessage(await bioFailureMessage());
+      return;
+    }
+    try {
       const raw = await SecureStore.getItemAsync(VAULT_KEY);
       if (!raw) throw new Error("No wallet on this phone yet.");
       const text = openWithHeldKey(raw, held);
@@ -1716,6 +1732,7 @@ export function useWallet() {
       setUnlockError(true);
       setUnlockMessage(error instanceof Error ? error.message : "Could not unlock.");
     } finally {
+      unlocking.current = false;
       setUnlockBusy(false);
     }
   }

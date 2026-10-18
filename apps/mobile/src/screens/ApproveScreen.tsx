@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { AppState, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import { theme } from "../theme";
 import { Inset } from "../ui/bits";
@@ -43,8 +43,20 @@ export function ApproveScreen(props: {
 
   useEffect(() => {
     if (!props.bio || asked.current) return;
-    asked.current = true;
-    props.onBiometric();
+    let live = true;
+    function ask() {
+      if (!live || asked.current || AppState.currentState !== "active") return;
+      asked.current = true;
+      props.onBiometric();
+    }
+    ask();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") ask();
+    });
+    return () => {
+      live = false;
+      sub.remove();
+    };
   }, [props.bio]);
 
   const icon = props.bio ? sensorIcon(method) : "lock";
@@ -57,7 +69,7 @@ export function ApproveScreen(props: {
         <View style={styles.ringOuter} />
         <View style={styles.ringMid} />
         <View style={styles.ringInner}>
-          <Icon name={icon} size={54} color={theme.mint} />
+          <Icon name={icon} size={48} color={theme.mint} />
         </View>
       </View>
       <Text style={styles.title}>{heading}</Text>
@@ -198,15 +210,15 @@ function sensorIcon(method: Sensor): "faceId" | "fingerprint" {
 const styles = StyleSheet.create({
   wrap: { gap: 14, paddingBottom: 24 },
   rings: { alignSelf: "center", width: 180, height: 180, alignItems: "center", justifyContent: "center", marginTop: 12 },
-  ringOuter: { position: "absolute", width: 180, height: 180, borderRadius: 90, borderWidth: 1, borderColor: "rgba(46,230,175,0.18)" },
-  ringMid: { position: "absolute", width: 140, height: 140, borderRadius: 70, borderWidth: 1, borderColor: "rgba(46,230,175,0.35)" },
+  ringOuter: { position: "absolute", width: 180, height: 180, borderRadius: 90, borderWidth: 1, borderColor: "rgba(46,230,175,0.08)" },
+  ringMid: { position: "absolute", width: 140, height: 140, borderRadius: 70, borderWidth: 1, borderColor: "rgba(46,230,175,0.16)" },
   ringInner: {
     width: 100,
     height: 100,
     borderRadius: 50,
     borderWidth: 1.5,
-    borderColor: theme.mint,
-    backgroundColor: theme.mintTint,
+    borderColor: "rgba(46,230,175,0.45)",
+    backgroundColor: "rgba(46,230,175,0.06)",
     alignItems: "center",
     justifyContent: "center",
   },
