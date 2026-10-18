@@ -1,0 +1,36 @@
+body {
+  width: 360px;
+  min-height: 280px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 8px 0 0;
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.waiting {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.qr {
+  display: block;
+  width: 220px;
+  height: 220px;
+  margin: 16px auto 0;
+  background: var(--bg-hero);
+  border-radius: var(--radius-brand-lg);
+  padding: 8px;
+}
+
+img[alt=""] {
+  display: block;
+}

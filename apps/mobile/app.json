@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "KNOAD Wallet",
+    "slug": "knoad-wallet",
+    "scheme": "knoad",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "io.knoad.wallet",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "KNOAD Wallet scans a connection code or an address.",
+        "NSFaceIDUsageDescription": "KNOAD Wallet uses Face ID to unlock and approve on this phone."
+      }
+    },
+    "android": {
+      "package": "io.knoad.wallet",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#050907"
+      }
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "KNOAD Wallet uses Face ID to unlock and approve on this phone."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "KNOAD Wallet scans a connection code or an address."
+        }
+      ],
+      "expo-font",
+      "./plugins/withKnoadEnclave",
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#050907",
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "imageWidth": 200,
+          "dark": {
+            "backgroundColor": "#050907",
+            "image": "./assets/splash.png"
+          }
+        }
+      ]
+    ]
+  }
+}

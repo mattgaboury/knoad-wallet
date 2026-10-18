@@ -1,0 +1,36 @@
+{
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+  "warning": "Public test mnemonic. Never fund an account derived from it.",
+  "path": {
+    "recovery": "m/7331'/60'/<account>'/0'/<epoch>'",
+    "initialHot": "m/7331'/60'/<account>'/1'/<chainId>'"
+  },
+  "accounts": [
+    {
+      "account": 0,
+      "paths": {
+        "recoveryEpoch0": "m/7331'/60'/0'/0'/0'",
+        "recoveryEpoch1": "m/7331'/60'/0'/0'/1'",
+        "initialHotChain1": "m/7331'/60'/0'/1'/1'",
+        "initialHotChain8453": "m/7331'/60'/0'/1'/8453'"
+      },
+      "recoveryEpoch0": "0xf5f2E05aD77bfbfF65A9D8A621ae8BaF0CB93e4C",
+      "recoveryEpoch1": "0x10205BA303257f74cE9e73B77433C1588B8E5fA7",
+      "initialHotChain1": "0x5B966224903a06BE3888Bc1eB7Dc769D9eE9f856",
+      "initialHotChain8453": "0x4c1EE09c1302FC64CFA24ec9187ED6e5C62707FB"
+    },
+    {
+      "account": 1,
+      "paths": {
+        "recoveryEpoch0": "m/7331'/60'/1'/0'/0'",
+        "recoveryEpoch1": "m/7331'/60'/1'/0'/1'",
+        "initialHotChain1": "m/7331'/60'/1'/1'/1'",
+        "initialHotChain8453": "m/7331'/60'/1'/1'/8453'"
+      },
+      "recoveryEpoch0": "0x4C68E475B67f65FE5F46aFe127ae4beEa7802Bdb",
+      "recoveryEpoch1": "0xa2Ec5446dAC4ef1D14BC0cB2D3e0EE52E5F03d8d",
+      "initialHotChain1": "0x615703Dff751354C0534dab40920b6F46Da42A67",
+      "initialHotChain8453": "0xcbF6ea79dd0B48602cDB10b7d05cA1364609e765"
+    }
+  ]
+}

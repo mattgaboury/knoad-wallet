@@ -1,0 +1,22 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": { "simulator": true },
+      "env": { "EXPO_PUBLIC_COMMERCE_SUBMIT": "0" }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": { "EXPO_PUBLIC_COMMERCE_SUBMIT": "0" }
+    },
+    "production": {
+      "autoIncrement": false,
+      "env": { "EXPO_PUBLIC_COMMERCE_SUBMIT": "0" }
+    }
+  }
+}

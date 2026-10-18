@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { brand, renderBrandCss } from "./tokens";
+
+const root = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+
+test("brand tokens match the knoad website theme", () => {
+  assert.equal(brand.color.dark.bg.base, "#050807");
+  assert.equal(brand.color.dark.bg.hero, "#0d1f14");
+  assert.equal(brand.color.dark.bg.elevated, "#1a3d2e");
+  assert.equal(brand.color.dark.accent.primary, "#3dd68c");
+  assert.equal(brand.color.dark.accent.hover, "#5ee3a2");
+  assert.equal(brand.color.dark.accent.soft, "rgba(61, 214, 140, 0.14)");
+  assert.equal(brand.color.dark.text.primary, "rgba(255, 255, 255, 0.93)");
+  assert.equal(brand.color.dark.text.muted, "rgba(255, 255, 255, 0.58)");
+  assert.equal(brand.color.dark.text.faint, "rgba(255, 255, 255, 0.32)");
+  assert.equal(brand.color.dark.border.subtle, "rgba(61, 214, 140, 0.38)");
+  assert.equal(brand.color.dark.border.faint, "rgba(255, 255, 255, 0.12)");
+  assert.equal(brand.color.dark.border.strong, "rgba(61, 214, 140, 0.55)");
+  assert.equal(brand.color.light.bg.base, "#f2f7f3");
+  assert.equal(brand.color.light.bg.hero, "#dce8df");
+  assert.equal(brand.color.light.accent.primary, "#14603f");
+  assert.equal(brand.color.warning, "#f97316");
+  assert.equal(brand.color.danger, "#e11d48");
+  assert.equal(brand.font.heading, "Sora");
+  assert.equal(brand.font.body, "Inter");
+  assert.equal(brand.type.caption, 13);
+  assert.equal(brand.radius.brand, 10);
+  assert.equal(brand.radius.brandLg, 16);
+  assert.equal(brand.radius.brandXl, 20);
+  assert.equal(brand.shadow.lift, "0 8px 24px rgba(0, 0, 0, 0.4)");
+  assert.equal(brand.shadow.glowSm, "0 0 14px rgba(61, 214, 140, 0.32)");
+  assert.equal(brand.shadow.glow, "0 0 28px rgba(61, 214, 140, 0.45)");
+  const css = readFileSync(join(root, "brand.css"), "utf8");
+  assert.equal(css, renderBrandCss());
+  assert.match(css, /#050807/);
+  assert.match(css, /#3dd68c/);
+  assert.match(css, /#e11d48/);
+});

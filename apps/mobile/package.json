@@ -1,0 +1,43 @@
+{
+  "name": "knoad-wallet-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start"
+  },
+  "dependencies": {
+    "@expo-google-fonts/inter": "^0.2.3",
+    "@expo-google-fonts/sora": "^0.2.3",
+    "@knoad/brand": "file:../../packages/brand",
+    "@knoad/wallet-core": "file:../../packages/core",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@walletconnect/sign-client": "^2.21.1",
+    "babel-preset-expo": "~57.0.0",
+    "expo": "^57.0.0",
+    "expo-asset": "~57.0.20",
+    "expo-camera": "~57.0.6",
+    "expo-clipboard": "~57.0.2",
+    "expo-constants": "~57.0.22",
+    "expo-dev-client": "~57.0.20",
+    "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-haptics": "~57.0.3",
+    "expo-keep-awake": "~57.0.2",
+    "expo-linear-gradient": "~57.0.2",
+    "expo-local-authentication": "~57.0.3",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.10",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-get-random-values": "~1.11.0",
+    "react-native-qrcode-svg": "^6.3.26",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4",
+    "react-native-webview": "13.16.1",
+    "viem": "^2.37.5"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.4"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@knoad/wallet-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "knoad-recover": "./src/main.ts"
+  },
+  "dependencies": {
+    "@knoad/wallet-core": "0.1.0",
+    "viem": "^2.37.5"
+  }
+}

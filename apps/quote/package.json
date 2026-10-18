@@ -1,0 +1,8 @@
+{
+  "name": "knoad-quote",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts"
+  }
+}

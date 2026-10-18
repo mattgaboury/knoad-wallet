@@ -1,0 +1,22 @@
+{
+  "name": "knoad-wallet",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/cli",
+    "packages/brand"
+  ],
+  "scripts": {
+    "test": "tsx --test packages/core/src/*.test.ts packages/cli/src/*.test.ts packages/brand/src/*.test.ts apps/extension/src/*.test.ts apps/quote/src/*.test.ts apps/mobile/src/*.test.ts",
+    "quote": "npm --prefix apps/quote start",
+    "live": "tsx scripts/live/run.ts",
+    "recover": "tsx packages/cli/src/main.ts"
+  },
+  "devDependencies": {
+    "@pimlico/alto": "^0.0.21",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

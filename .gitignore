@@ -1,0 +1,11 @@
+cache/
+out/
+broadcast/
+lib/
+node_modules/
+.expo/
+dist/
+*.log
+.env
+.env.*
+!.env.example

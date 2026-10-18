@@ -1,0 +1,95 @@
+{
+  "chainId": 31337,
+  "entryPoint": "0x433709009B8330FDa32311DF1C2AFA402eD8D009",
+  "factory": "0x640b63604581cC0b1326025a57C188BCc6160Dc9",
+  "bundler": "alto-safe-mode",
+  "p256": "untested",
+  "p256Note": "Anvil 1.5 on Cancun does not serve the P-256 precompile at 0x100. The scenarios used secp256k1 keys. P-256 was not tested live.",
+  "phoneScreens": "The phone screens were not clicked through.",
+  "scenarios": [
+    {
+      "name": "first-use",
+      "detail": "Activation in initCode deployed the account and rotated."
+    },
+    {
+      "name": "spend after first use",
+      "detail": "A later send paid with the key that was just installed."
+    },
+    {
+      "name": "send-and-rotate",
+      "detail": "One included send rotated once and paid."
+    },
+    {
+      "name": "spend after a normal send",
+      "detail": "A later send paid with the key that was just installed."
+    },
+    {
+      "name": "speed-up",
+      "detail": "The replacement at the same nonce landed, and the key rotated once."
+    },
+    {
+      "name": "spend after a speed-up",
+      "detail": "A later send paid with the key that was just installed."
+    },
+    {
+      "name": "cancel",
+      "detail": "The empty replacement landed. The payment did not."
+    },
+    {
+      "name": "spend after a cancel",
+      "detail": "A later send paid with the key that was just installed."
+    },
+    {
+      "name": "original-lands-first",
+      "detail": "The replacement was refused. The phone caught up to the included send."
+    },
+    {
+      "name": "spend after a refused replacement",
+      "detail": "A later send paid with the key that was just installed."
+    },
+    {
+      "name": "reverting-send",
+      "detail": "The key rotated and the receipt reported failure."
+    },
+    {
+      "name": "spend after a reverting send",
+      "detail": "A later send paid with the key that was just installed."
+    },
+    {
+      "name": "two-ops-one-bundle",
+      "detail": "Both operations executed in one bundle, each under its own validation."
+    },
+    {
+      "name": "spend after two operations in one bundle",
+      "detail": "A later send paid with the key that was just installed."
+    },
+    {
+      "name": "repeated-next-key-one-bundle",
+      "detail": "A to B, B to C, and C to B all executed in one bundle."
+    },
+    {
+      "name": "spend after a repeated next key",
+      "detail": "A later send paid with the key that was just installed."
+    },
+    {
+      "name": "old-device-first-use",
+      "detail": "A creation-time activation still deployed after about two years, and a later send paid."
+    },
+    {
+      "name": "restored-device-first-use",
+      "detail": "Entering the words again rebuilt the same activation, and that activation deployed."
+    },
+    {
+      "name": "new-network-first-use",
+      "detail": "A chain left out of creation needed the words, and those words signed its activation."
+    },
+    {
+      "name": "stolen-phone-loses-race",
+      "detail": "Recovery opened the funded chain with a new key. The old activation was refused and the funds stayed."
+    },
+    {
+      "name": "secure-all-outside-payer",
+      "detail": "An empty account and a token-only account both needed an outside payer. Paying closed the token account. The unpaid account still accepted the old activation."
+    }
+  ]
+}
