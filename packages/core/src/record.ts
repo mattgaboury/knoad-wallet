@@ -48,6 +48,8 @@ export type ChainAccountState = {
   /** Recovery steps signed in one sitting, in the order they must land. */
   recoveryQueue?: PreparedKey[] | null;
   pendingSend?: PendingSend | null;
+  /** Block time, in ms, of the send that installed this spending key. Null means this phone looked and the chain had no time. */
+  keySince?: number | null;
 };
 
 export type VaultRecord = {
@@ -126,5 +128,121 @@ function asAddress(value: unknown, label: string): Address {
 function asAddressOrNull(value: unknown): Address | null {
   if (typeof value !== "string" || !value || !isAddress(value)) return null;
   return getAddress(value);
+}
+
+export type KnoadWallet = {
+  id: string;
+  kind: "knoad";
+  name: string;
+  accountIndex: number;
+  account: Address;
+  recovery: Address;
+  originalRecovery: Address;
+  recoveryEpoch: string;
+  chains: Record<string, ChainAccountState>;
+};
+
+export type StandardWallet = {
+  id: string;
+  kind: "standard";
+  name: string;
+  address: Address;
+  privateKey: Hex;
+};
+
+export type StoredWallet = KnoadWallet | StandardWallet;
+
+export type VaultFile = {
+  v: 4;
+  selectedId: string;
+  selectedChainId: number;
+  wallets: StoredWallet[];
+};
+
+export function walletAddress(wallet: StoredWallet): Address {
+  return wallet.kind === "knoad" ? wallet.account : wallet.address;
+}
+
+export function knoadRecord(wallet: KnoadWallet, selectedChainId: number): VaultRecord {
+  return {
+    v: 3,
+    accountIndex: wallet.accountIndex,
+    account: wallet.account,
+    recovery: wallet.recovery,
+    originalRecovery: wallet.originalRecovery,
+    recoveryEpoch: wallet.recoveryEpoch,
+    selectedChainId,
+    chains: wallet.chains,
+  };
+}
+
+export function applyRecord(file: VaultFile, record: VaultRecord): VaultFile {
+  if (!record.account) return { ...file, selectedChainId: record.selectedChainId };
+  return {
+    ...file,
+    selectedChainId: record.selectedChainId,
+    wallets: file.wallets.map((wallet) => {
+      if (wallet.kind !== "knoad" || wallet.id !== file.selectedId) return wallet;
+      return {
+        ...wallet,
+        accountIndex: record.accountIndex,
+        account: record.account ?? wallet.account,
+        recovery: record.recovery,
+        originalRecovery: record.originalRecovery,
+        recoveryEpoch: record.recoveryEpoch,
+        chains: record.chains,
+      };
+    }),
+  };
+}
+
+/** A version 3 vault becomes the phone's first wallet. The 24 words stay out of the file. */
+export function migrateVaultFile(value: unknown): VaultFile {
+  if (value && typeof value === "object" && (value as { v?: unknown }).v === 4) return parseVaultFile(value);
+  const record = migrateVaultRecord(value);
+  if (!record.account) throw new Error("Vault account is not an address.");
+  const wallet: KnoadWallet = {
+    id: "main",
+    kind: "knoad",
+    name: "Main Wallet",
+    accountIndex: record.accountIndex,
+    account: record.account,
+    recovery: record.recovery,
+    originalRecovery: record.originalRecovery,
+    recoveryEpoch: record.recoveryEpoch,
+    chains: record.chains,
+  };
+  return { v: 4, selectedId: wallet.id, selectedChainId: record.selectedChainId, wallets: [wallet] };
+}
+
+function parseVaultFile(value: unknown): VaultFile {
+  const raw = value as Record<string, unknown>;
+  const wallets = Array.isArray(raw.wallets) ? raw.wallets.map(parseWallet) : [];
+  if (wallets.length === 0) throw new Error("Vault record is empty.");
+  const selectedId = typeof raw.selectedId === "string" && wallets.some((wallet) => wallet.id === raw.selectedId) ? raw.selectedId : wallets[0].id;
+  return { v: 4, selectedId, selectedChainId: asChainId(raw.selectedChainId, 84532), wallets };
+}
+
+function parseWallet(value: unknown): StoredWallet {
+  if (!value || typeof value !== "object") throw new Error("Vault wallet is empty.");
+  const raw = value as Record<string, unknown>;
+  const id = typeof raw.id === "string" && raw.id ? raw.id : "main";
+  const name = typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "Wallet";
+  if (raw.kind === "standard") {
+    const privateKey = raw.privateKey;
+    if (typeof privateKey !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(privateKey)) throw new Error("Vault wallet is not a key.");
+    return { id, kind: "standard", name, address: asAddress(raw.address, "wallet"), privateKey: privateKey as Hex };
+  }
+  return {
+    id,
+    kind: "knoad",
+    name,
+    accountIndex: asNumber(raw.accountIndex),
+    account: asAddress(raw.account, "wallet"),
+    recovery: asAddress(raw.recovery, "recovery"),
+    originalRecovery: asAddress(raw.originalRecovery ?? raw.recovery, "original recovery"),
+    recoveryEpoch: typeof raw.recoveryEpoch === "string" ? raw.recoveryEpoch : "0",
+    chains: raw.chains && typeof raw.chains === "object" ? (raw.chains as Record<string, ChainAccountState>) : {},
+  };
 }
 

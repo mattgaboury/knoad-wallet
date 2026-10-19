@@ -9,11 +9,23 @@ const FLAG = "knoad.bio.enabled";
 const ITEM = "knoad.bio.key";
 const SERVICE = "knoad.biometric";
 
+const UNLOCK_PROMPT = "Unlock KNOAD";
+
 const options: SecureStore.SecureStoreOptions = {
   requireAuthentication: true,
-  authenticationPrompt: "Unlock KNOAD",
+  authenticationPrompt: UNLOCK_PROMPT,
   keychainService: SERVICE,
 };
+
+/** The system sheet title. Unlock stays fixed. An approval uses the request. */
+export function biometricPrompt(action?: string): string {
+  const text = action?.replace(/\s+/g, " ").trim() ?? "";
+  if (!text) return UNLOCK_PROMPT;
+  const domain = text.match(/Sign “(\S+) wants you to sign in/u)?.[1];
+  if (domain) return `Sign in to ${domain}`;
+  if (text.length <= 80) return text;
+  return "Approve this request";
+}
 
 export async function readBioFlag(): Promise<boolean> {
   return (await AsyncStorage.getItem(FLAG)) === "1";
@@ -46,17 +58,17 @@ export async function clearBioKey(): Promise<void> {
 let reading: Promise<VaultKey> | null = null;
 
 /** One system prompt. A second call while it is open waits on the same read. */
-export function readBioKey(): Promise<VaultKey> {
+export function readBioKey(prompt = UNLOCK_PROMPT): Promise<VaultKey> {
   if (reading) return reading;
-  const pending = loadBioKey().finally(() => {
+  const pending = loadBioKey(prompt).finally(() => {
     if (reading === pending) reading = null;
   });
   reading = pending;
   return pending;
 }
 
-async function loadBioKey(): Promise<VaultKey> {
-  const raw = await SecureStore.getItemAsync(ITEM, options);
+async function loadBioKey(prompt: string): Promise<VaultKey> {
+  const raw = await SecureStore.getItemAsync(ITEM, { ...options, authenticationPrompt: prompt });
   if (!raw) throw new Error("Biometric unlock is not set up.");
   const parsed = JSON.parse(raw) as { key: string; salt: string; t: number; m: number; p: number };
   return {
@@ -71,15 +83,16 @@ export function isBioCancel(error: unknown): boolean {
   return /cancel/i.test(message);
 }
 
-export async function bioFailureMessage(): Promise<string> {
+export async function bioFailureMessage(purpose: "unlock" | "approve" = "unlock"): Promise<string> {
+  const verb = purpose === "approve" ? "approve" : "unlock";
   try {
     const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
     const face = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION);
     const finger = types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT);
     const method = Platform.OS === "ios" ? (face ? "Face ID" : "Touch ID") : finger ? "Fingerprint" : face ? "Face unlock" : "Fingerprint";
-    return `${method} did not unlock. Try again or use the password.`;
+    return `${method} did not ${verb}. Try again or use the password.`;
   } catch {
-    return "Fingerprint did not unlock. Try again or use the password.";
+    return `Fingerprint did not ${verb}. Try again or use the password.`;
   }
 }
 

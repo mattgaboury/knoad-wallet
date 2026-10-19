@@ -25,6 +25,7 @@ export function SendScreen(props: {
   onScan: () => void;
   onReview: (draft: { to: string; toName?: string; amount: string; symbol: string; fiat: string | null; fee: string | null }) => void;
   onBack: () => void;
+  standard?: boolean;
 }) {
   const [to, setTo] = useState(props.initialTo);
   const [amount, setAmount] = useState("");
@@ -204,11 +205,13 @@ export function SendScreen(props: {
           <GlowIcon name="shieldCheck" />
           <View style={styles.assetCopy}>
             <View style={styles.inline}>
-              <Text style={styles.cardTitle}>KNOAD security active</Text>
-              <Chip label="KNOAD PROTECTION" />
+              <Text style={styles.cardTitle}>{props.standard ? "Standard wallet" : "KNOAD security active"}</Text>
+              {props.standard ? null : <Chip label="KNOAD PROTECTION" />}
             </View>
             <Text style={styles.meta}>
-              {`Your current spending key on ${props.chainName} will automatically retire after this transfer is included on-chain. A new key will be ready for your next transaction.`}
+              {props.standard
+                ? "This key does not change. The network fee is paid from this wallet."
+                : `Your current spending key on ${props.chainName} will automatically retire after this transfer is included on-chain. A new key will be ready for your next transaction.`}
             </Text>
           </View>
         </View>

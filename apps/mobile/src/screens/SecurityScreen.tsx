@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { daysAgo, hostOf, verifiedDate } from "../format";
+import { spendingKeyLine } from "../spendingKey";
 import type { SavedSite } from "../sites";
 import { theme } from "../theme";
 import type { PhoneChainView } from "../useWallet";
@@ -16,6 +17,7 @@ export function SecurityScreen(props: {
   scanning?: boolean;
   pendingIds: number[];
   sites: SavedSite[];
+  standard?: boolean;
   onRecover: () => void;
   onDisconnect: (topic: string) => void;
 }) {
@@ -30,7 +32,7 @@ export function SecurityScreen(props: {
   const allProtected = deployed.length > 0 && deployed.every((view) => statusOf(view, props.pendingIds).label === "Protected");
   const fresh = allChecked && deployed.length === 0 && props.pendingIds.length === 0;
   const calm = props.scanning || allProtected || fresh;
-  const headline = props.scanning ? "Checking security" : allProtected ? "Protection active" : fresh ? "Ready to receive" : "Check needed";
+  const headline = props.standard ? "Standard wallet" : props.scanning ? "Checking security" : allProtected ? "Protection active" : fresh ? "Ready to receive" : "Check needed";
 
   return (
     <View style={styles.wrap}>
@@ -45,10 +47,12 @@ export function SecurityScreen(props: {
                 <Text style={styles.protectText}>KNOAD PROTECTION</Text>
               </View>
             </View>
-            <Text style={styles.body}>Each chain uses a separate spending key. Your assets stay safer by design.</Text>
+            <Text style={styles.body}>
+              {props.standard ? "Standard wallet. This key does not change." : "Each chain uses a separate spending key. Your assets stay safer by design."}
+            </Text>
           </View>
         </View>
-        <View style={styles.grid}>
+        {props.standard ? null : <View style={styles.grid}>
           {props.views.map((view) => {
             const status = props.scanning ? { label: "Checking", tone: "dim" as const } : statusOf(view, props.pendingIds);
             return (
@@ -59,11 +63,22 @@ export function SecurityScreen(props: {
                     {view.name}
                   </Text>
                   <StatusDot label={status.label} tone={status.tone} />
+                  {view.checked ? (
+                    <Text style={styles.keyLine}>
+                      {spendingKeyLine({
+                        deployed: view.deployed,
+                        pending: props.pendingIds.includes(view.chainId),
+                        generation: view.generation,
+                        signer: view.hotSigner,
+                        since: view.keySince,
+                      })}
+                    </Text>
+                  ) : null}
                 </View>
               </View>
             );
           })}
-        </View>
+        </View>}
       </GlowCard>
 
       <Pressable onPress={props.onRecover} style={styles.card}>
@@ -179,7 +194,7 @@ const styles = StyleSheet.create({
   protectText: { color: theme.mint, fontFamily: theme.font.semibold, fontSize: 10, letterSpacing: 0.6 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
   cell: {
-    width: "48.5%",
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -192,6 +207,7 @@ const styles = StyleSheet.create({
   },
   cellCopy: { flex: 1, minWidth: 0, gap: 2 },
   cellName: { color: theme.text, fontFamily: theme.font.medium, fontSize: 13 },
+  keyLine: { color: theme.textMuted, fontFamily: theme.font.regular, fontSize: 12, lineHeight: 16 },
   lead: {
     width: 42,
     height: 42,

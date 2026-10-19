@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { CHAINS, formatUnits } from "@knoad/wallet-core";
+import { CHAINS, formatUnits, getChain } from "@knoad/wallet-core";
 import type { ActivityEntry } from "../activityLog";
+import type { HeldNft } from "../nfts";
 import type { Holding } from "../useWallet";
 import { ActivityRow } from "./ActivityScreen";
 import { shortAddress, signedPercent, signedUsd, usd } from "../format";
@@ -18,11 +19,15 @@ const RANGES: RangeKey[] = ["1D", "1W", "1M", "1Y"];
 
 export function HomeScreen(props: {
   address: string;
+  walletName: string;
+  knoad: boolean;
   chainId: number;
   holdings: Holding[];
   ready: boolean;
   securityTitle: string;
+  keyLine: string;
   onChain: (chainId: number) => void;
+  onWallets: () => void;
   onSend: () => void;
   onReceive: () => void;
   onSwap: () => void;
@@ -30,6 +35,9 @@ export function HomeScreen(props: {
   onAsset: (holding: Holding) => void;
   onOpenActivity: () => void;
   log: ActivityEntry[];
+  nfts: HeldNft[];
+  nftStatus: "loading" | "ready" | "empty" | "error";
+  onNft: (nft: HeldNft) => void;
 }) {
   const [range, setRange] = useState<RangeKey>("1D");
   const [spot, setSpot] = useState<Spot | null>(null);
@@ -89,8 +97,8 @@ export function HomeScreen(props: {
         <View style={styles.identityMain}>
           <Identicon seed={props.address} />
           <View>
-            <Pressable style={styles.nameRow} onPress={props.onReceive} accessibilityLabel="Show wallet address">
-              <Text style={styles.name}>Main Wallet</Text>
+            <Pressable style={styles.nameRow} onPress={props.onWallets} accessibilityLabel="Switch wallet">
+              <Text style={styles.name}>{props.walletName}</Text>
               <Icon name="chevronDown" size={16} color={theme.textMuted} />
             </Pressable>
             <Pressable onPress={() => void copy()} style={styles.addressRow} accessibilityLabel="Copy address">
@@ -138,7 +146,7 @@ export function HomeScreen(props: {
       <View style={styles.actions}>
         <ActionTile icon="send" label="Send" onPress={props.onSend} />
         <ActionTile icon="receive" label="Receive" onPress={props.onReceive} />
-        <ActionTile icon="swap" label="Swap" onPress={props.onSwap} />
+        {props.knoad ? <ActionTile icon="swap" label="Swap" onPress={props.onSwap} /> : null}
       </View>
 
       <Pressable onPress={props.onSecurity}>
@@ -151,6 +159,7 @@ export function HomeScreen(props: {
                 <Chip label="KNOAD PROTECTION" />
               </View>
               <Text style={styles.body}>Each chain uses a separate spending key. Your assets stay safer by design.</Text>
+              {props.keyLine ? <Text style={styles.keyLine}>{props.keyLine}</Text> : null}
             </View>
             <Icon name="chevronRight" size={18} color={theme.textMuted} />
           </View>
@@ -167,7 +176,9 @@ export function HomeScreen(props: {
         <IconButton name="filter" label={chainOnly ? "Show every chain" : "Show this chain"} onPress={() => setChainOnly((current) => !current)} color={chainOnly ? theme.mint : theme.textMuted} />
       </View>
 
-      {section === "nfts" ? <Text style={styles.empty}>This build does not list NFTs.</Text> : null}
+      {section === "nfts" ? (
+        <NftList nfts={props.nfts} status={props.nftStatus} chainId={props.chainId} chainOnly={chainOnly} onNft={props.onNft} />
+      ) : null}
       {section === "activity" ? (
         <View style={styles.log}>
           {props.log.length === 0 ? <Text style={styles.empty}>No activity yet.</Text> : null}
@@ -232,6 +243,54 @@ export function HomeScreen(props: {
   );
 }
 
+function NftList(props: {
+  nfts: HeldNft[];
+  status: "loading" | "ready" | "empty" | "error";
+  chainId: number;
+  chainOnly: boolean;
+  onNft: (nft: HeldNft) => void;
+}) {
+  if (props.status === "loading") return <Text style={styles.empty}>Reading NFTs.</Text>;
+  if (props.status === "error") return <Text style={styles.empty}>Could not read NFTs.</Text>;
+  const rows = props.nfts.filter((nft) => !props.chainOnly || nft.chainId === props.chainId);
+  if (rows.length === 0) {
+    return <Text style={styles.empty}>{props.chainOnly && props.nfts.length > 0 ? "No NFTs on this chain." : "No NFTs on Ethereum or Base."}</Text>;
+  }
+  return (
+    <View style={styles.log}>
+      {rows.map((nft) => (
+        <NftRow key={`${nft.chainId}:${nft.contract}:${nft.tokenId}`} nft={nft} onPress={() => props.onNft(nft)} />
+      ))}
+    </View>
+  );
+}
+
+function NftRow(props: { nft: HeldNft; onPress: () => void }) {
+  const [failed, setFailed] = useState(false);
+  const chain = getChain(props.nft.chainId)?.name ?? "Network";
+  return (
+    <Pressable onPress={props.onPress} style={styles.asset}>
+      {props.nft.image && !failed ? (
+        <Image source={{ uri: props.nft.image }} style={styles.thumb} onError={() => setFailed(true)} />
+      ) : (
+        <View style={styles.thumb}>
+          <Text style={styles.thumbText}>#</Text>
+        </View>
+      )}
+      <View style={styles.assetMain}>
+        <Text style={styles.symbol} numberOfLines={1}>
+          {props.nft.name}
+        </Text>
+        <Text style={styles.qty}>{`${props.nft.collection} · #${props.nft.tokenId}`}</Text>
+      </View>
+      <View style={styles.badge}>
+        <Text style={styles.badgeText}>{chain}</Text>
+      </View>
+      <Icon name="chevronRight" size={16} color={theme.textDim} />
+    </Pressable>
+  );
+}
+
 function priceOf(symbol: string, spot: Spot | null): { price: number | null; change: number | null } {
   if (!spot) return { price: null, change: null };
   if (symbol === "USDC") return { price: spot.usdc, change: spot.usdcChange };
@@ -284,6 +343,7 @@ const styles = StyleSheet.create({
   securityCopy: { flex: 1, gap: 4 },
   cardTitle: { color: theme.text, fontFamily: theme.font.semibold, fontSize: 16 },
   body: { color: theme.textMuted, fontFamily: theme.font.regular, fontSize: 13, lineHeight: 18 },
+  keyLine: { color: theme.text, fontFamily: theme.font.medium, fontSize: 13, lineHeight: 18 },
   tabs: { flexDirection: "row", alignItems: "flex-end", gap: 16, marginTop: 4 },
   tab: { paddingBottom: 8 },
   tabText: { color: theme.textDim, fontFamily: theme.font.semibold, fontSize: 16 },
@@ -310,4 +370,13 @@ const styles = StyleSheet.create({
   qty: { color: theme.textMuted, fontFamily: theme.font.regular, fontSize: 13 },
   assetValue: { alignItems: "flex-end", gap: 2 },
   fiat: { color: theme.text, fontFamily: theme.font.semibold, fontSize: 15 },
+  thumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: theme.inset,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  thumbText: { color: theme.textMuted, fontFamily: theme.font.semibold, fontSize: 16 },
 });

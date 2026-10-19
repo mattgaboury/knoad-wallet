@@ -32,6 +32,30 @@ export function dappFacingState(account: Address, chainId: number) {
   return { address: getAddress(account), chainId };
 }
 
+/** The chain a sign-in message names on its own Chain ID line. */
+export function messageChainId(message: string): number | null {
+  for (const line of message.split("\n")) {
+    if (!line.startsWith("Chain ID: ")) continue;
+    return numberChain(line.slice("Chain ID: ".length));
+  }
+  return null;
+}
+
+/** The chain written in a typed-data domain. */
+export function typedDataChainId(value: unknown): number | null {
+  return numberChain(value);
+}
+
+/**
+ * A signature uses the chain the request names. The wallet's selected chain
+ * is only the fallback when the request does not name one.
+ */
+export function signatureChain(named: number | null, fallback: number): number | { reject: string } {
+  if (named == null) return fallback;
+  if (!getChain(named)) return { reject: "This signature checks a chain this phone does not open." };
+  return named;
+}
+
 export function routeSessionRequest(input: {
   method: string;
   params?: unknown;
@@ -67,11 +91,13 @@ export function routeSessionRequest(input: {
     if (!parsed) return { kind: "reject", reason: "Could not read the typed data." };
     const request = parseTypedDataRequest(parsed);
     const name = request?.domain.name ? ` (${request.domain.name})` : "";
+    const chain = signatureChain(typedDataChainId(request?.domain.chainId), input.chainId);
+    if (typeof chain !== "number") return { kind: "reject", reason: chain.reject };
     return withOrigin(
       {
         kind: "sign-typed-data",
         address: getAddress(input.account),
-        chainId: input.chainId,
+        chainId: chain,
         typedDataJson: parsed,
         summary: `Sign ${request?.primaryType ?? "typed data"}${name}`,
       },
@@ -82,11 +108,13 @@ export function routeSessionRequest(input: {
   if (method === "personal_sign") {
     const message = messageFromParams(method, input.params);
     if (!message) return { kind: "reject", reason: "Missing message." };
+    const chain = signatureChain(messageChainId(message), input.chainId);
+    if (typeof chain !== "number") return { kind: "reject", reason: chain.reject };
     return withOrigin(
       {
         kind: "sign-message",
         address: getAddress(input.account),
-        chainId: input.chainId,
+        chainId: chain,
         message,
       },
       input.origin,
@@ -213,6 +241,16 @@ function callsFromSendCalls(params: unknown): Call[] | null {
     parsed.push(call);
   }
   return parsed;
+}
+
+function numberChain(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === "bigint" && value > 0n && value <= BigInt(Number.MAX_SAFE_INTEGER)) return Number(value);
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text) return null;
+  const parsed = text.startsWith("0x") ? Number.parseInt(text, 16) : Number(text);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function toBigint(value: unknown): bigint {

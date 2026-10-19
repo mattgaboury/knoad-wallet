@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { decodeFunctionData, getAddress, recoverAddress, slice, toHex, zeroAddress, type Address, type Hex } from "viem";
+import { decodeFunctionData, getAddress, recoverAddress, serializeErc6492Signature, slice, toHex, zeroAddress, type Address, type Hex } from "viem";
 import {
   activationDigest,
   buildFirstUseOp,
@@ -27,6 +27,10 @@ import {
   KEY_SECP256K1,
   memoryKv,
   personalSignDigest,
+  messageChainId,
+  accountInitCode,
+  callDataFromInitCode,
+  wrapErc6492Signature,
   prepareActivations,
   p256SignerAddress,
   predictAccount,
@@ -43,6 +47,7 @@ import {
   erc7739TypedData,
   hotKeyTypeForChain,
   migrateVaultRecord,
+  migrateVaultFile,
   chainState,
   withChainState,
   resolveChain,
@@ -167,6 +172,11 @@ test("prepareActivations signs each chain's derived first key", async () => {
   const again = await prepareActivations(MNEMONIC, account, [1]);
   assert.equal(again[0].initialKey, prepared[0].initialKey);
   assert.equal(again[0].activationSignature, prepared[0].activationSignature);
+  const secondRecovery = deriveRecovery(MNEMONIC, 1, 0);
+  const second = predictDeployedAccount({ recovery: secondRecovery.address, index: 1n });
+  const [other] = await prepareActivations(MNEMONIC, second, [1], 1);
+  assert.equal(other.initialSigner, deriveInitialHot(MNEMONIC, 1, 1).address);
+  assert.notEqual(other.initialSigner, prepared[0].initialSigner);
 });
 
 test("buildFirstUseOp deploys with an empty call signed by the first key", async () => {
@@ -232,6 +242,59 @@ test("personal-sign digests are bound to the account", () => {
   const b = personalSignDigest(getAddress("0x00000000000000000000000000000000000000bb"), 8453n, "link this wallet");
   assert.notEqual(a, b);
   assert.equal(a.length, 66);
+});
+
+test("a sign-in names its chain, and an undeployed signature carries the factory", () => {
+  const message = [
+    "opensea.io wants you to sign in with your Ethereum account:",
+    ACCOUNT,
+    "",
+    "Click to sign in.",
+    "",
+    "URI: https://opensea.io/profile/holdings",
+    "Version: 1",
+    "Chain ID: 1",
+    "Nonce: abcdefgh",
+    "Issued At: 2026-10-18T16:46:28.503Z",
+  ].join("\n");
+  assert.equal(messageChainId(message), 1);
+  assert.equal(messageChainId("hello"), null);
+  const signIn = routeSessionRequest({
+    method: "personal_sign",
+    account: ACCOUNT,
+    chainId: 8453,
+    params: [message, ACCOUNT],
+  });
+  assert.equal(signIn.kind, "sign-message");
+  if (signIn.kind === "sign-message") assert.equal(signIn.chainId, 1);
+  const typedOnEthereum = routeSessionRequest({
+    method: "eth_signTypedData_v4",
+    account: ACCOUNT,
+    chainId: 8453,
+    params: [
+      ACCOUNT,
+      {
+        types: { Mail: [{ name: "contents", type: "string" }] },
+        primaryType: "Mail",
+        domain: { name: "MailApp", version: "1", chainId: 1, verifyingContract: ACCOUNT },
+        message: { contents: "hello" },
+      },
+    ],
+  });
+  assert.equal(typedOnEthereum.kind, "sign-typed-data");
+  if (typedOnEthereum.kind === "sign-typed-data") assert.equal(typedOnEthereum.chainId, 1);
+  const initCode = accountInitCode({
+    factory: deployments.factory,
+    recovery: ACCOUNT,
+    initialSigner: getAddress("0x00000000000000000000000000000000000000bb"),
+    signature: `0x${"11".repeat(65)}`,
+  });
+  const data = callDataFromInitCode(deployments.factory, initCode);
+  const signature = `0x${"ab".repeat(65)}` as Hex;
+  assert.equal(
+    wrapErc6492Signature({ factory: deployments.factory, factoryCalldata: data, signature }),
+    serializeErc6492Signature({ address: deployments.factory, data, signature }),
+  );
 });
 
 test("P-256 signature carries the public key and is low-s shaped", () => {
@@ -477,6 +540,12 @@ test("vault records keep a separate generation per chain", () => {
   assert.equal(chainState(next, 1).deployed, true);
   assert.equal(migrated.recoveryEpoch, "0");
   assert.equal(migrated.originalRecovery, getAddress(ACCOUNT));
+  const file = migrateVaultFile(migrated);
+  assert.equal(file.v, 4);
+  assert.equal(file.wallets.length, 1);
+  assert.equal(file.wallets[0].kind, "knoad");
+  assert.equal(file.wallets[0].name, "Main Wallet");
+  assert.equal(file.selectedId, file.wallets[0].id);
   const predicted = predictDeployedAccount({ recovery: ACCOUNT });
   assert.match(predicted, /^0x[0-9a-fA-F]{40}$/);
 });

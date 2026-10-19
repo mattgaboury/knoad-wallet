@@ -66,7 +66,7 @@ export function ActivityScreen(props: {
 
   return (
     <View style={styles.wrap}>
-      <PageTitle title="Activity" subtitle="Sends from this phone." />
+      <PageTitle title="Activity" subtitle="Sends and received NFTs." />
       {rows.length === 0 ? <Text style={styles.body}>No activity yet.</Text> : null}
       {rows.map((item) => (
         <Pressable key={item.id} onPress={() => setOpenId(item.id)} accessibilityRole="button">
@@ -275,6 +275,11 @@ function labelFor(item: ActivityEntry): string {
   if (item.kind === "speed") return `Speed up ${amount}`;
   if (item.kind === "swap") return `Swap ${amount} to ${item.to ?? "token"}`;
   if (item.kind === "bridge") return `Bridge ${amount} to ${item.to ?? "another chain"}`;
+  if (item.kind === "site") return item.asset ?? "Site transaction";
+  if (item.kind === "nft") {
+    const label = [item.asset, item.amount].filter(Boolean).join(" ");
+    return item.toName ? `Send ${label} to ${item.toName}` : `Received ${label}`;
+  }
   return item.toName ? `Send ${amount} to ${item.toName}` : `Send ${amount}`;
 }
 

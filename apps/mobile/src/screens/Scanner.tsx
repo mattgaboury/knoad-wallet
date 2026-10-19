@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { isAddress } from "viem";
@@ -7,6 +7,7 @@ import { theme } from "../theme";
 export function Scanner(props: { onAddress: (value: string) => void; onWalletConnect: (uri: string) => void; onClose: () => void }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [ready, setReady] = useState(false);
+  const seenCode = useRef<string | null>(null);
 
   async function open() {
     if (!permission?.granted) {
@@ -26,8 +27,13 @@ export function Scanner(props: { onAddress: (value: string) => void; onWalletCon
             style={styles.camera}
             barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
             onBarcodeScanned={({ data }) => {
-              if (data.startsWith("wc:")) props.onWalletConnect(data);
-              else if (isAddress(data)) props.onAddress(data);
+              if (data.startsWith("wc:")) {
+                if (seenCode.current) return;
+                seenCode.current = data;
+                props.onWalletConnect(data);
+                return;
+              }
+              if (isAddress(data)) props.onAddress(data);
             }}
           />
         ) : (

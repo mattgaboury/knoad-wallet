@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { encodeFunctionData, getAddress, isAddress, parseUnits, type Address, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import {
   CHAINS,
   WriteAheadLog,
@@ -24,6 +25,10 @@ import {
   deriveRecovery,
   deriveRecoveryAsync,
   describeDecision,
+  messageChainId,
+  signatureChain,
+  typedDataChainId,
+  parseTypedDataRequest,
   emptyChainState,
   assertCallGas,
   bufferedGas,
@@ -34,7 +39,11 @@ import {
   getChain,
   hotKeyTypeForChain,
   initialHotIsLive,
-  migrateVaultRecord,
+  migrateVaultFile,
+  applyRecord,
+  knoadRecord,
+  walletAddress,
+  predictDeployedAccount,
   openUtf8Async,
   prepareActivations,
   prepareRotation,
@@ -51,6 +60,8 @@ import {
   signSecp256k1,
   userOpHash,
   withChainState,
+  callDataFromInitCode,
+  wrapErc6492Signature,
   type ChainAccountState,
   type ChainAuthorityView,
   type KeyType,
@@ -60,16 +71,20 @@ import {
   type SessionDecision,
   type Call,
   type VaultRecord,
+  type VaultFile,
+  type StandardWallet,
+  type StoredWallet,
   BundlerRefusal,
 } from "@knoad/wallet-core";
 import { appendActivity, loadActivity, markActivity, patchActivity, pendingRows } from "./activityLog";
+import { nftTransferCall, siteCallLabel, type HeldNft } from "./nfts";
 import { bioFailureMessage, clearBioKey, isBioCancel, openWithHeldKey, readBioFlag, readBioKey, saveBioKey } from "./biometric";
 import { DEFAULT_CHAIN_ID, WALLETCONNECT_PROJECT_ID, chainEnv } from "./config";
-import { predictAccount, chainRpc, readAccountFacts, readBalances, readDeployed, readGeneration, readHoldsListedTokens, readHotSigner, readNativeBalance, readUserOpLog } from "./chain";
+import { predictAccount, chainRpc, latestKeyChange, readAccountFacts, readBalances, readDeployed, readGeneration, readHoldsListedTokens, readHotSigner, readNativeBalance, readReceipt, readUserOpLog, sendOwnedTransaction, txBlockTime } from "./chain";
 import { secureStoreKv, selectHotKeystore } from "./deviceKeys";
 import { secpSigner, signPersonal, signRotatingOperation, signTypedData, submitPriced } from "./send";
-import { forgetSite, loadSites, rememberSite, type SavedSite } from "./sites";
-import { pairWalletConnect, type WalletConnectSession } from "./walletConnect";
+import { forgetSite, loadSites, rememberSite, sitesForAccount, type SavedSite } from "./sites";
+import { bindWalletConnect, pairWalletConnect, type WalletConnectSession } from "./walletConnect";
 import type { CutoffRow } from "./screens/CutoffSheet";
 
 const VAULT_KEY = "knoad.vault";
@@ -94,7 +109,13 @@ const VAULT_PARAMS = { t: 1, m: 4096, p: 1 };
 const ONE_DAY = 86_400;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 
-export type PhoneChainView = ChainAuthorityView & { canSpend: boolean; needsWords: boolean };
+export type PhoneChainView = ChainAuthorityView & {
+  canSpend: boolean;
+  needsWords: boolean;
+  generation: string;
+  hotSigner: Address | null;
+  keySince: number | null;
+};
 export type Screen = "create" | "backup" | "unlock" | "home" | "send" | "pair" | "recover" | "swap" | "bridge" | "buy" | "nfts" | "security";
 export type Holding = {
   key: string;
@@ -170,11 +191,12 @@ function rememberSend(
   });
 }
 
-async function chainsFromWords(phrase: string, account: Address): Promise<Record<string, ChainAccountState>> {
+async function chainsFromWords(phrase: string, account: Address, accountIndex = 0): Promise<Record<string, ChainAccountState>> {
   const prepared = await prepareActivations(
     phrase,
     account,
     CHAINS.map((item) => item.chainId),
+    accountIndex,
   );
   const chains: Record<string, ChainAccountState> = {};
   for (const item of prepared) {
@@ -199,6 +221,9 @@ function blankView(chainId: number, name: string): PhoneChainView {
     recoveryEpoch: null,
     canSpend: false,
     needsWords: false,
+    generation: "0",
+    hotSigner: null,
+    keySince: null,
   };
 }
 
@@ -226,6 +251,9 @@ export function useWallet() {
   const heldKey = useRef<VaultKey | null>(null);
   const heldPassword = useRef("");
   const [record, setRecord] = useState<VaultRecord | null>(null);
+  const [vaultFile, setVaultFile] = useState<VaultFile | null>(null);
+  const [standard, setStandard] = useState<StandardWallet | null>(null);
+  const fileRef = useRef<VaultFile | null>(null);
   const [note, setNote] = useState("");
   const [to, setTo] = useState("");
   const [uri, setUri] = useState("");
@@ -239,6 +267,7 @@ export function useWallet() {
   const grantedOrigins = useRef(new Set<string>());
   const [pairMessage, setPairMessage] = useState("");
   const [pairBusy, setPairBusy] = useState(false);
+  const pairing = useRef(false);
   const [chainReport, setChainReport] = useState<PhoneChainView[]>([]);
   const [cutoff, setCutoff] = useState<CutoffRow[] | null>(null);
   const [cutoffKind, setCutoffKind] = useState<"spend" | "secure">("spend");
@@ -267,7 +296,7 @@ export function useWallet() {
     };
   }, []);
 
-  const chainId = record?.selectedChainId ?? DEFAULT_CHAIN_ID;
+  const chainId = record?.selectedChainId ?? vaultFile?.selectedChainId ?? DEFAULT_CHAIN_ID;
   const chain = getChain(chainId) ?? CHAINS[3];
   const current = record ? chainState(record, chainId) : emptyChainState();
   const reported = chainReport.find((view) => view.chainId === chainId);
@@ -287,7 +316,20 @@ export function useWallet() {
     setPrompt(null);
   }
 
-  async function persist(next: VaultRecord, passphrase = passwordRef.current, onProgress?: (progress: number) => void) {
+  function showFile(file: VaultFile) {
+    fileRef.current = file;
+    setVaultFile(file);
+    const selected = file.wallets.find((wallet) => wallet.id === file.selectedId) ?? file.wallets[0];
+    if (selected?.kind === "knoad") {
+      setRecord(knoadRecord(selected, file.selectedChainId));
+      setStandard(null);
+      return;
+    }
+    setRecord(null);
+    setStandard(selected?.kind === "standard" ? selected : null);
+  }
+
+  async function sealFile(file: VaultFile, passphrase = passwordRef.current, onProgress?: (progress: number) => void) {
     if (!heldKey.current || heldPassword.current !== passphrase) {
       if (!passphrase) throw new Error("Choose a password. It only unlocks this phone.");
       heldKey.current = await createVaultKey(passphrase, VAULT_PARAMS, onProgress);
@@ -297,9 +339,17 @@ export function useWallet() {
         setBioOn(false);
       }
     }
-    await SecureStore.setItemAsync(VAULT_KEY, JSON.stringify(sealUtf8WithKey(JSON.stringify(next), heldKey.current)));
+    await SecureStore.setItemAsync(VAULT_KEY, JSON.stringify(sealUtf8WithKey(JSON.stringify(file), heldKey.current)));
     setHasVault(true);
-    setRecord(next);
+    showFile(file);
+  }
+
+  async function persist(next: VaultRecord, passphrase = passwordRef.current, onProgress?: (progress: number) => void) {
+    const current = fileRef.current;
+    const file = current && current.wallets.some((wallet) => wallet.kind === "knoad" && wallet.id === current.selectedId)
+      ? applyRecord(current, next)
+      : migrateVaultFile(next);
+    await sealFile(file, passphrase, onProgress);
   }
 
   function replacePassword(value: string) {
@@ -321,6 +371,7 @@ export function useWallet() {
     return accountInitCode({
       factory: deployments.factory,
       recovery: source.originalRecovery,
+      index: BigInt(source.accountIndex),
       initialSigner: state.initialSigner,
       keyType: 1,
       signature: state.activationSignature,
@@ -452,20 +503,25 @@ export function useWallet() {
         shown = pct;
         setUnlockMessage(`Unlocking ${pct}%.`);
       });
-      const next = migrateVaultRecord(JSON.parse(opened.text));
+      const file = migrateVaultFile(JSON.parse(opened.text));
       const savedLock = opened.held.params;
       const sameLock = savedLock.t === VAULT_PARAMS.t && savedLock.m === VAULT_PARAMS.m && savedLock.p === VAULT_PARAMS.p;
+      const selected = file.wallets.find((wallet) => wallet.id === file.selectedId);
+      const openedRecord = selected?.kind === "knoad" ? knoadRecord(selected, file.selectedChainId) : null;
       if (sameLock) {
         heldKey.current = opened.held;
         heldPassword.current = passphrase;
-        setRecord(next);
+        showFile(file);
       } else {
         setUnlockMessage("Saving a faster lock.");
-        await persist(next, passphrase);
+        fileRef.current = file;
+        if (openedRecord) await persist(openedRecord, passphrase);
+        else await sealFile(file, passphrase);
       }
       setUnlockMessage("");
       setScreen("home");
-      if (next.account) await refresh(next);
+      if (openedRecord?.account) await refresh(openedRecord);
+      else if (selected?.kind === "standard") void loadBalances(selected.address);
     } catch (error) {
       const rejected = error instanceof Error && error.message === "Vault password did not open this file.";
       setUnlockError(true);
@@ -503,7 +559,7 @@ export function useWallet() {
                 : [];
           const index = queue.findIndex((step) => getAddress(step.signer) === hot);
           const rest = index >= 0 ? queue.slice(index + 1) : [];
-          if (state.pendingSend) await recordPendingOutcome(item.chainId, state.pendingSend);
+          const keySince = await installedAt(item.chainId, state, hot);
           next = withChainState(next, item.chainId, {
             ...state,
             generation: chainGeneration.toString(),
@@ -518,6 +574,7 @@ export function useWallet() {
             pendingKeyType: rest[0]?.keyType ?? null,
             recoveryQueue: rest.length > 0 ? rest : null,
             pendingSend: null,
+            keySince,
           });
           continue;
         }
@@ -529,7 +586,7 @@ export function useWallet() {
               : [];
         const index = queue.findIndex((step) => getAddress(step.signer) === hot);
         if (index < 0) continue;
-        if (state.pendingSend) await recordPendingOutcome(item.chainId, state.pendingSend);
+        const keySince = await installedAt(item.chainId, state, hot);
         const match = queue[index];
         const rest = queue.slice(index + 1);
         next = withChainState(next, item.chainId, {
@@ -545,6 +602,7 @@ export function useWallet() {
           pendingKeyType: rest[0]?.keyType ?? null,
           recoveryQueue: rest.length > 0 ? rest : null,
           pendingSend: null,
+          keySince,
         });
       } catch {
         continue;
@@ -558,21 +616,28 @@ export function useWallet() {
       setChainReport([]);
       return [];
     }
-    const adopted = await adoptIncludedKeys(source);
-    if (adopted !== source) {
-      await persist(adopted);
-      source = adopted;
-    }
-    if (!source.account) return [];
+    let stamped = await adoptIncludedKeys(source);
+    if (stamped !== source) await persist(stamped);
+    const account = stamped.account;
+    if (!account) return [];
     const views: PhoneChainView[] = [];
+    let dirty = false;
     for (const item of CHAINS) {
       if (!chainEnv(item.chainId).rpcUrl) {
         views.push(blankView(item.chainId, item.name));
         continue;
       }
       try {
-        const facts = await readAccountFacts(item.chainId, source.account);
-        const state = chainState(source, item.chainId);
+        const facts = await readAccountFacts(item.chainId, account);
+        let state = chainState(stamped, item.chainId);
+        if (facts.deployed && facts.generation > 0n && state.keySince === undefined) {
+          const looked = await latestKeyChange(item.chainId, account);
+          if (looked.done) {
+            state = { ...state, keySince: looked.at };
+            stamped = withChainState(stamped, item.chainId, state);
+            dirty = true;
+          }
+        }
         views.push({
           chainId: item.chainId,
           name: item.name,
@@ -587,13 +652,30 @@ export function useWallet() {
           recoveryEpoch: facts.recoveryEpoch,
           canSpend: phoneCanSpend(state, facts),
           needsWords: chainNeedsWords(state, facts.deployed),
+          generation: facts.generation.toString(),
+          hotSigner: facts.hotSigner,
+          keySince: typeof state.keySince === "number" && state.keySince > 0 ? state.keySince : null,
         });
       } catch {
         views.push(blankView(item.chainId, item.name));
       }
     }
+    if (dirty) await persist(stamped);
     setChainReport(views);
     return views;
+  }
+
+  async function installedAt(chainId: number, state: ChainAccountState, hot: Address): Promise<number | null | undefined> {
+    const same = Boolean(state.currentSigner && getAddress(state.currentSigner) === hot);
+    let since: number | null | undefined = same ? state.keySince : undefined;
+    if (state.pendingSend) {
+      const outcome = await recordPendingOutcome(chainId, state.pendingSend);
+      if (outcome.txHash) {
+        const at = await txBlockTime(chainId, outcome.txHash);
+        if (at) since = at;
+      }
+    }
+    return since;
   }
 
   function decimalNonce(value: unknown): string {
@@ -639,12 +721,15 @@ export function useWallet() {
     return { found: true, success: logged.success, reason: "", txHash: logged.txHash, nonce: logged.nonce };
   }
 
-  async function recordPendingOutcome(selected: number, pending: { userOpHash: string; kind: string; sentAt?: number }): Promise<{ found: boolean; success: boolean }> {
+  async function recordPendingOutcome(
+    selected: number,
+    pending: { userOpHash: string; kind: string; sentAt?: number },
+  ): Promise<{ found: boolean; success: boolean; txHash: string }> {
     const outcome = await userOpOutcome(selected, pending.userOpHash, pending.sentAt);
-    if (!outcome.found) return outcome;
+    if (!outcome.found) return { found: false, success: false, txHash: "" };
     const status = pending.kind === "cancel" ? "cancelled" : outcome.success ? "included" : "failed";
     await patchActivity(pending.userOpHash, { status, reason: outcome.reason, txHash: outcome.txHash, nonce: outcome.nonce || undefined });
-    return outcome;
+    return { found: true, success: outcome.success, txHash: outcome.txHash };
   }
 
   async function settleActivity(): Promise<boolean> {
@@ -653,6 +738,13 @@ export function useWallet() {
     const live = new Set(pendingRows(record).map((row) => row.pending.userOpHash));
     let changed = false;
     for (const entry of entries) {
+      if (entry.plain && entry.status === "pending") {
+        const receipt = await readReceipt(entry.chainId, entry.hash);
+        if (!receipt) continue;
+        await patchActivity(entry.hash, { status: receipt === "success" ? "included" : "failed", txHash: entry.hash });
+        changed = true;
+        continue;
+      }
       if (entry.status !== "pending" || live.has(entry.hash)) {
         if (entry.nonce) continue;
         const prior = await userOpOutcome(entry.chainId, entry.hash, entry.time);
@@ -708,37 +800,45 @@ export function useWallet() {
       return message;
     }
     if (relation === "catch-up" && chainGeneration === local + 1n) {
+      let prepared: Awaited<ReturnType<WriteAheadLog["requirePrepared"]>>;
       try {
-        const prepared = await wal.requirePrepared(account, selected, local);
-        next = withChainState(next, selected, {
-          generation: chainGeneration.toString(),
-          hotKeyId: prepared.nextKeyId,
-          keyType: prepared.nextKeyType,
-          currentSigner: prepared.nextSigner,
-          deployed: true,
-          initialKey: null,
-          activationSignature: null,
-          pendingSend: null,
-          pendingHotKeyId: null,
-          pendingSigner: null,
-          pendingKeyType: null,
-        });
+        prepared = await wal.requirePrepared(account, selected, local);
       } catch {
         await persist(next);
         const message = "This phone is missing the next key. Use your 24 words.";
         setNote(message);
         return message;
       }
+      const pending = localState.pendingSend;
+      let outcome: { found: boolean; success: boolean; txHash: string } | null = null;
+      let keySince: number | undefined;
+      if (pending && pending.nonce === local.toString()) {
+        outcome = await recordPendingOutcome(selected, pending);
+        if (outcome.txHash) {
+          const at = await txBlockTime(selected, outcome.txHash);
+          if (at) keySince = at;
+        }
+      }
+      next = withChainState(next, selected, {
+        generation: chainGeneration.toString(),
+        hotKeyId: prepared.nextKeyId,
+        keyType: prepared.nextKeyType,
+        currentSigner: prepared.nextSigner,
+        deployed: true,
+        initialKey: null,
+        activationSignature: null,
+        pendingSend: null,
+        pendingHotKeyId: null,
+        pendingSigner: null,
+        pendingKeyType: null,
+        ...(keySince ? { keySince } : {}),
+      });
+      let message = "This chain switched keys. Other chains switch on their own.";
+      if (outcome && pending?.kind === "cancel" && outcome.found) message = "Cancelled. The old key has stopped.";
+      else if (outcome && outcome.found && !outcome.success) message = "The key changed. The payment did not go through.";
       await persist(next);
       await wal.commit(account, selected);
       await scanChains(next);
-      const pending = localState.pendingSend;
-      let message = "This chain switched keys. Other chains switch on their own.";
-      if (pending && pending.nonce === local.toString()) {
-        const outcome = await recordPendingOutcome(selected, pending);
-        if (pending.kind === "cancel" && outcome.found) message = "Cancelled. The old key has stopped.";
-        else if (outcome.found && !outcome.success) message = "The key changed. The payment did not go through.";
-      }
       setNote(message);
       return message;
     }
@@ -759,6 +859,57 @@ export function useWallet() {
     if (state.hotKeyId) return keys.keystore.sign(state.hotKeyId, digest);
     if (state.initialKey) return secpSigner(state.initialKey)(digest);
     throw new Error("Use your 24 words to spend on this chain.");
+  }
+
+  function chainTheRequestNames(named: number | null, fallback: number): number {
+    const chain = signatureChain(named, fallback);
+    if (typeof chain !== "number") throw new Error(chain.reject);
+    return chain;
+  }
+
+  async function signOnRequestedChain(
+    source: VaultRecord,
+    signingChain: number,
+    sign: (signCurrent: (digest: Hex) => Promise<Hex>) => Promise<Hex>,
+  ): Promise<Hex> {
+    if (!source.account) throw new Error("Unlock this phone first.");
+    const chainName = getChain(signingChain)?.name ?? "this chain";
+    let deployed = false;
+    if (chainEnv(signingChain).rpcUrl) {
+      try {
+        deployed = (await readAccountFacts(signingChain, source.account)).deployed;
+      } catch {
+        throw new Error(`Could not reach ${chainName}.`);
+      }
+    }
+    if (deployed) return sign((digest) => signCurrent(digest, signingChain, source));
+    const state = chainState(source, signingChain);
+    if (!state.initialKey || !state.initialSigner || !state.activationSignature) {
+      throw new Error(`This signature checks ${chainName}. This account is not on ${chainName} yet.`);
+    }
+    const signature = await sign((digest) => secpSigner(state.initialKey as Hex)(digest));
+    return wrapErc6492Signature({
+      factory: deployments.factory,
+      factoryCalldata: callDataFromInitCode(deployments.factory, initFor(source, signingChain, false)),
+      signature,
+    });
+  }
+
+  function signConnectedMessage(source: VaultRecord, message: string, selected: number): Promise<Hex> {
+    if (!source.account) throw new Error("Unlock this phone first.");
+    const signingChain = chainTheRequestNames(messageChainId(message), selected);
+    return signOnRequestedChain(source, signingChain, (signCurrent) =>
+      signPersonal({ account: source.account as Address, chainId: signingChain, message, signCurrent }),
+    );
+  }
+
+  function signConnectedTypedData(source: VaultRecord, typedDataJson: string, selected: number): Promise<Hex> {
+    if (!source.account) throw new Error("Unlock this phone first.");
+    const request = parseTypedDataRequest(typedDataJson);
+    const signingChain = chainTheRequestNames(typedDataChainId(request?.domain.chainId), selected);
+    return signOnRequestedChain(source, signingChain, (signCurrent) =>
+      signTypedData({ account: source.account as Address, chainId: signingChain, typedDataJson, signCurrent }),
+    );
   }
 
   async function assertHoldsKey(source: VaultRecord, selected: number) {
@@ -850,6 +1001,10 @@ export function useWallet() {
   }
 
   async function send(draft?: { to?: string; amount?: string; symbol?: string; toName?: string }) {
+    if (standard) {
+      await sendStandard(draft);
+      return;
+    }
     try {
       const recipient = (draft?.to ?? to).trim();
       if (!record?.account || !isAddress(recipient)) {
@@ -913,11 +1068,74 @@ export function useWallet() {
         time: Date.now(),
         status: "pending",
         nonce: chainState(sent.next, chainId).pendingSend?.nonce,
+        account: record.account,
       }).catch(() => undefined);
       setNote("Sent. Waiting for the network.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not send.";
       if (message.startsWith("Not enough ETH") || message.startsWith("The network fee could not be sized")) throw error;
+      setNote(message);
+    }
+  }
+
+  async function sendStandard(draft?: { to?: string; amount?: string; symbol?: string; toName?: string }) {
+    if (!standard) return;
+    if (chainId !== 1 && chainId !== 8453) throw new Error("This wallet sends on Ethereum or Base.");
+    const recipient = (draft?.to ?? to).trim();
+    if (!isAddress(recipient)) throw new Error("Enter who should receive this.");
+    const symbol = draft?.symbol || "ETH";
+    const amountText = (draft?.amount ?? "").trim();
+    if (!amountText) throw new Error("Enter an amount.");
+    const listed = tokensForChain(chainId).find((token) => token.symbol === symbol);
+    if (!listed) throw new Error("This wallet sends ETH, WETH, or USDC.");
+    const amount = parseUnits(amountText, listed.decimals);
+    if (amount <= 0n) throw new Error("Enter an amount.");
+    const destination = getAddress(recipient);
+    try {
+      const hash = await sendOwnedTransaction({
+        chainId,
+        privateKey: standard.privateKey,
+        to: listed.native ? destination : listed.address,
+        value: listed.native ? amount : 0n,
+        data: listed.native
+          ? "0x"
+          : encodeFunctionData({
+              abi: [
+                {
+                  type: "function",
+                  name: "transfer",
+                  stateMutability: "nonpayable",
+                  inputs: [
+                    { name: "to", type: "address" },
+                    { name: "amount", type: "uint256" },
+                  ],
+                  outputs: [{ type: "bool" }],
+                },
+              ],
+              functionName: "transfer",
+              args: [destination, amount],
+            }),
+      });
+      void appendActivity({
+        id: hash,
+        chainId,
+        kind: "send",
+        hash,
+        txHash: hash,
+        amount: amountText,
+        asset: symbol,
+        to: destination,
+        toName: draft?.toName,
+        time: Date.now(),
+        status: "pending",
+        account: standard.address,
+        plain: true,
+      }).catch(() => undefined);
+      setNote("Sent. Waiting for the network.");
+      void loadBalances(standard.address);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send.";
+      if (message.startsWith("Not enough ETH")) throw error;
       setNote(message);
     }
   }
@@ -959,7 +1177,63 @@ export function useWallet() {
     }
   }
 
+  async function sendSiteCalls(source: VaultRecord, selected: number, calls: Call[]): Promise<Hex> {
+    const sent = await signAndMaybeSend(source, selected, calls);
+    if (!sent.hash || !sent.next) throw new Error("Sending is not connected on this chain yet.");
+    await persist(sent.next);
+    await appendActivity({
+      id: sent.hash,
+      chainId: selected,
+      kind: "site",
+      hash: sent.hash,
+      asset: siteCallLabel(calls),
+      time: Date.now(),
+      status: "pending",
+      nonce: chainState(sent.next, selected).pendingSend?.nonce,
+      account: source.account ?? undefined,
+    }).catch(() => undefined);
+    return sent.hash as Hex;
+  }
+
+  async function transferNft(nft: HeldNft, to: string): Promise<void> {
+    if (standard) throw new Error("Transfers stay on a KNOAD wallet.");
+    if (!record?.account || !isAddress(to)) throw new Error("Enter who should receive this.");
+    const recipient = getAddress(to);
+    if (recipient === getAddress(record.account)) throw new Error("Choose a different address.");
+    const sent = await signAndMaybeSend(record, nft.chainId, [
+      {
+        target: nft.contract,
+        value: 0n,
+        data: nftTransferCall({
+          from: record.account,
+          to: recipient,
+          tokenId: nft.tokenId,
+          standard: nft.standard,
+          amount: nft.amount,
+        }),
+      },
+    ], { to: recipient, asset: nft.collection, amount: `#${nft.tokenId}` });
+    if (!sent.hash || !sent.next) throw new Error("Sending is not connected on this chain yet.");
+    await persist(sent.next);
+    await appendActivity({
+      id: sent.hash,
+      chainId: nft.chainId,
+      kind: "nft",
+      hash: sent.hash,
+      amount: `#${nft.tokenId}`,
+      asset: nft.collection,
+      to: recipient,
+      toName: `${recipient.slice(0, 6)}…${recipient.slice(-4)}`,
+      time: Date.now(),
+      status: "pending",
+      nonce: chainState(sent.next, nft.chainId).pendingSend?.nonce,
+      account: record.account,
+    });
+    setNote("Sent. Waiting for the network.");
+  }
+
   async function submitCalls(calls: Call[], meta?: { kind: "swap" | "bridge"; amount?: string; asset?: string; to?: string }): Promise<string> {
+    if (standard) throw new Error("Swaps stay on a KNOAD wallet.");
     if (!record?.account) throw new Error("Locked.");
     const sent = await signAndMaybeSend(record, chainId, calls);
     if (!sent.hash || !sent.next) throw new Error("Sending is not connected on this chain yet.");
@@ -976,6 +1250,7 @@ export function useWallet() {
         time: Date.now(),
         status: "pending",
         nonce: chainState(sent.next, chainId).pendingSend?.nonce,
+        account: record.account ?? undefined,
       });
     }
     return sent.hash;
@@ -1075,6 +1350,7 @@ export function useWallet() {
         time: Date.now(),
         status: "pending",
         nonce: pending.nonce,
+        account: adopted.account ?? undefined,
       }).catch(() => undefined);
       setNote(kind === "send" ? "Fee raised. The old key stays until this lands." : "Cancel sent. The old key stays until this lands.");
     } catch (error) {
@@ -1150,7 +1426,7 @@ export function useWallet() {
   }
 
   async function pair(nextUri?: string) {
-    if (pairBusy) return;
+    if (pairing.current) return;
     const id = WALLETCONNECT_PROJECT_ID.trim();
     const code = (nextUri ?? uri).trim();
     if (!id) {
@@ -1161,7 +1437,13 @@ export function useWallet() {
       setPairMessage("Scan the site's connection code.");
       return;
     }
+    if (standard) {
+      setPairMessage("Connected sites stay on a KNOAD wallet.");
+      setNote("Connected sites stay on a KNOAD wallet.");
+      return;
+    }
     if (!record?.account) return;
+    pairing.current = true;
     setPairBusy(true);
     setPairMessage("Connecting.");
     try {
@@ -1170,28 +1452,12 @@ export function useWallet() {
         uri: code,
         account: record.account,
         chainId,
+        note: setNote,
         approveSite: askSite,
         confirm: (decision) => ask(decision),
-        signMessage: (message, selected) =>
-          signPersonal({
-            account: record.account as Address,
-            chainId: selected,
-            message,
-            signCurrent: (digest) => signCurrent(digest, selected, record),
-          }),
-        signTypedData: (typedDataJson, selected) =>
-          signTypedData({
-            account: record.account as Address,
-            chainId: selected,
-            typedDataJson,
-            signCurrent: (digest) => signCurrent(digest, selected, record),
-          }),
-        sendCalls: async (calls, selected) => {
-          const sent = await signAndMaybeSend(record, selected, calls);
-          if (!sent.hash || !sent.next) throw new Error("Sending is not connected on this chain yet.");
-          await persist(sent.next);
-          return sent.hash as Hex;
-        },
+        signMessage: (message, selected) => signConnectedMessage(record, message, selected),
+        signTypedData: (typedDataJson, selected) => signConnectedTypedData(record, typedDataJson, selected),
+        sendCalls: (calls, selected) => sendSiteCalls(record, selected, calls),
         switchChain: async (selected) => {
           const next = { ...record, selectedChainId: selected };
           await persist(next);
@@ -1205,6 +1471,7 @@ export function useWallet() {
         url: linked.url,
         icon: linked.icon,
         connectedAt: Date.now(),
+        account: record.account,
       });
       setSites(saved);
       const connected = "Connected. The site sees your address only.";
@@ -1215,15 +1482,81 @@ export function useWallet() {
       setPairMessage(message);
       setNote(message);
     } finally {
+      pairing.current = false;
       setPairBusy(false);
     }
   }
 
   async function chooseChain(selected: number) {
-    if (!record) return;
-    const next = { ...record, selectedChainId: selected };
-    await persist(next);
-    await refresh(next);
+    if (record) {
+      const next = { ...record, selectedChainId: selected };
+      await persist(next);
+      await refresh(next);
+      return;
+    }
+    const file = fileRef.current;
+    if (!file || !standard) return;
+    await sealFile({ ...file, selectedChainId: selected });
+    void loadBalances(standard.address);
+  }
+
+  async function selectWallet(id: string) {
+    const file = fileRef.current;
+    if (!file || file.selectedId === id) return;
+    const next = { ...file, selectedId: id };
+    setChainReport([]);
+    await sealFile(next);
+    const selected = next.wallets.find((wallet) => wallet.id === id);
+    if (selected?.kind === "knoad") await refresh(knoadRecord(selected, next.selectedChainId));
+    else if (selected?.kind === "standard") void loadBalances(selected.address);
+  }
+
+  async function addKnoadWallet(name: string, phrase: string): Promise<void> {
+    const file = fileRef.current;
+    const words = phrase.trim();
+    if (!file) throw new Error("Unlock this phone first.");
+    const main = file.wallets.find((wallet) => wallet.kind === "knoad" && wallet.accountIndex === 0);
+    if (!main || main.kind !== "knoad") throw new Error("Main Wallet is not on this phone.");
+    const recovery = await deriveRecoveryAsync(words, 0, 0);
+    if (getAddress(recovery.address) !== getAddress(main.originalRecovery)) throw new Error("These words do not open Main Wallet.");
+    const used = file.wallets.filter((wallet) => wallet.kind === "knoad").map((wallet) => wallet.accountIndex);
+    const accountIndex = Math.max(...used) + 1;
+    const nextRecovery = await deriveRecoveryAsync(words, accountIndex, 0);
+    const account = predictDeployedAccount({ recovery: nextRecovery.address, index: BigInt(accountIndex) });
+    if (file.wallets.some((wallet) => walletAddress(wallet) === account)) throw new Error("That wallet is already on this phone.");
+    const chains = await chainsFromWords(words, account, accountIndex);
+    const label = name.trim() || `Wallet ${accountIndex + 1}`;
+    const wallet: StoredWallet = {
+      id: `knoad-${accountIndex}`,
+      kind: "knoad",
+      name: label,
+      accountIndex,
+      account,
+      recovery: nextRecovery.address,
+      originalRecovery: nextRecovery.address,
+      recoveryEpoch: "0",
+      chains,
+    };
+    const next = { ...file, selectedId: wallet.id, wallets: [...file.wallets, wallet] };
+    await sealFile(next);
+    setNote("Wallet ready. You can receive now. Each chain gets its own key on the first send.");
+    await refresh(knoadRecord(wallet, next.selectedChainId));
+  }
+
+  async function importStandardWallet(name: string, privateKey: string): Promise<void> {
+    const file = fileRef.current;
+    if (!file) throw new Error("Unlock this phone first.");
+    const text = privateKey.trim();
+    if (!/^0x[0-9a-fA-F]{64}$/.test(text)) throw new Error("Enter the private key.");
+    const key = text as Hex;
+    const address = privateKeyToAccount(key).address;
+    if (file.wallets.some((wallet) => walletAddress(wallet) === address)) throw new Error("That wallet is already on this phone.");
+    const label = name.trim() || "Imported wallet";
+    const wallet: StandardWallet = { id: `standard-${address.slice(2, 10).toLowerCase()}`, kind: "standard", name: label, address, privateKey: key };
+    await sealFile({ ...file, selectedId: wallet.id, wallets: [...file.wallets, wallet] });
+    setChainReport([]);
+    void loadBalances(address);
+    setNote("Standard wallet. This key does not change.");
   }
 
   function freshRecord(account: Address, recovery: Address): VaultRecord {
@@ -1719,15 +2052,18 @@ export function useWallet() {
       const raw = await SecureStore.getItemAsync(VAULT_KEY);
       if (!raw) throw new Error("No wallet on this phone yet.");
       const text = openWithHeldKey(raw, held);
-      const next = migrateVaultRecord(JSON.parse(text));
+      const file = migrateVaultFile(JSON.parse(text));
+      const selected = file.wallets.find((wallet) => wallet.id === file.selectedId);
+      const openedRecord = selected?.kind === "knoad" ? knoadRecord(selected, file.selectedChainId) : null;
       heldKey.current = held;
       heldPassword.current = "";
       passwordRef.current = "";
       setPassword("");
-      setRecord(next);
+      showFile(file);
       setUnlockMessage("");
       setScreen("home");
-      if (next.account) await refresh(next);
+      if (openedRecord?.account) await refresh(openedRecord);
+      else if (selected?.kind === "standard") void loadBalances(selected.address);
     } catch (error) {
       setUnlockError(true);
       setUnlockMessage(error instanceof Error ? error.message : "Could not unlock.");
@@ -1770,20 +2106,10 @@ export function useWallet() {
       return null;
     }
     if (decision.kind === "sign-message") {
-      return signPersonal({
-        account: record.account,
-        chainId: decision.chainId,
-        message: decision.message,
-        signCurrent: (digest) => signCurrent(digest, decision.chainId, record),
-      });
+      return signConnectedMessage(record, decision.message, decision.chainId);
     }
     if (decision.kind === "sign-typed-data") {
-      return signTypedData({
-        account: record.account,
-        chainId: decision.chainId,
-        typedDataJson: decision.typedDataJson,
-        signCurrent: (digest) => signCurrent(digest, decision.chainId, record),
-      });
+      return signConnectedTypedData(record, decision.typedDataJson, decision.chainId);
     }
     const sent = await signAndMaybeSend(record, decision.chainId, decision.calls);
     if (!sent.hash || !sent.next) throw new Error("Sending is not connected on this chain yet.");
@@ -1797,20 +2123,58 @@ export function useWallet() {
   }
 
   async function changePassword(nextPassword: string): Promise<void> {
-    if (!record || !heldKey.current) throw new Error("Unlock this phone first.");
+    if (!fileRef.current || !heldKey.current) throw new Error("Unlock this phone first.");
     if (!nextPassword) throw new Error("Choose a password. It only unlocks this phone.");
     const held = await createVaultKey(nextPassword, VAULT_PARAMS);
     heldKey.current = held;
     heldPassword.current = nextPassword;
     passwordRef.current = nextPassword;
     setPassword(nextPassword);
-    await persist(record, nextPassword);
+    if (record) await persist(record, nextPassword);
+    else if (fileRef.current) await sealFile(fileRef.current, nextPassword);
     if (bioOn) await saveBioKey(held);
   }
 
+  if (record?.account) {
+    bindWalletConnect({
+      account: record.account,
+      chainId,
+      note: setNote,
+      approveSite: askSite,
+      confirm: (decision) => ask(decision),
+      signMessage: (message, selected) => signConnectedMessage(record, message, selected),
+      signTypedData: (typedDataJson, selected) => signConnectedTypedData(record, typedDataJson, selected),
+      sendCalls: (calls, selected) => sendSiteCalls(record, selected, calls),
+      switchChain: async (selected) => {
+        const next = { ...record, selectedChainId: selected };
+        await persist(next);
+        await refresh(next);
+      },
+    });
+  } else {
+    bindWalletConnect(null);
+  }
+
+  const address = record?.account ?? standard?.address ?? null;
+  const main = vaultFile?.wallets.find((wallet) => wallet.kind === "knoad" && wallet.accountIndex === 0);
+  const mainAddress = main?.kind === "knoad" ? main.account : address ?? "";
+  const selectedWallet = vaultFile?.wallets.find((wallet) => wallet.id === vaultFile.selectedId);
   return {
     booted,
     hasVault,
+    address,
+    mainAddress,
+    walletKind: standard ? ("standard" as const) : record ? ("knoad" as const) : null,
+    walletName: selectedWallet?.name ?? "Main Wallet",
+    wallets: (vaultFile?.wallets ?? []).map((wallet) => ({
+      id: wallet.id,
+      kind: wallet.kind,
+      name: wallet.name,
+      address: walletAddress(wallet),
+    })),
+    selectWallet,
+    addKnoadWallet,
+    importStandardWallet,
     screen,
     setScreen,
     password,
@@ -1834,7 +2198,7 @@ export function useWallet() {
     setNote,
     balances,
     balancesReady,
-    sites,
+    sites: address && mainAddress ? sitesForAccount(sites, address, mainAddress) : sites,
     bioOn,
     browserOrigins,
     revokeBrowser,
@@ -1871,6 +2235,7 @@ export function useWallet() {
     settleActivity,
     scanChains,
     send,
+    transferNft,
     pair,
     chooseChain,
     buildLook,

@@ -30,14 +30,15 @@ export async function prepareActivations(
   phrase: string,
   account: Address,
   chainIds: readonly number[],
+  accountIndex = 0,
 ): Promise<PreparedActivation[]> {
   if (!phrase.trim()) throw new Error("The 24 words are missing.");
   assertRecoveryMnemonic(phrase);
   const seed = await mnemonicToSeed(phrase.trim(), "");
-  const recoveryKey = deriveAtPath(seed, recoveryPath(0, 0)).privateKey;
+  const recoveryKey = deriveAtPath(seed, recoveryPath(accountIndex, 0)).privateKey;
   const prepared: PreparedActivation[] = [];
   for (const chainId of chainIds) {
-    const hot = deriveAtPath(seed, initialHotPath(0, chainId));
+    const hot = deriveAtPath(seed, initialHotPath(accountIndex, chainId));
     const activationSignature = await signSecp256k1(
       recoveryKey,
       activationDigest({

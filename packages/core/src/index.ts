@@ -5,6 +5,7 @@ export * from "./vault";
 export * from "./wal";
 export * from "./keystore";
 export * from "./account";
+export * from "./erc6492";
 export * from "./activation";
 export * from "./session";
 export * from "./chains";

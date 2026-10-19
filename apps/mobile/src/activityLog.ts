@@ -8,7 +8,7 @@ export type ActivityStatus = "pending" | "included" | "failed" | "cancelled" | "
 export type ActivityEntry = {
   id: string;
   chainId: number;
-  kind: "send" | "cancel" | "speed" | "swap" | "bridge";
+  kind: "send" | "cancel" | "speed" | "swap" | "bridge" | "site" | "nft";
   hash: string;
   amount?: string;
   asset?: string;
@@ -19,7 +19,15 @@ export type ActivityEntry = {
   reason?: string;
   txHash?: string;
   nonce?: string;
+  account?: string;
+  plain?: boolean;
 };
+
+export function activityForAccount(entries: ActivityEntry[], account: string, main: string): ActivityEntry[] {
+  const owner = account.toLowerCase();
+  const first = main.toLowerCase();
+  return entries.filter((item) => (item.account ?? first).toLowerCase() === owner);
+}
 
 export async function loadActivity(): Promise<ActivityEntry[]> {
   try {
@@ -34,6 +42,16 @@ export async function loadActivity(): Promise<ActivityEntry[]> {
 
 async function write(entries: ActivityEntry[]) {
   await AsyncStorage.setItem(KEY, JSON.stringify(entries.slice(0, 80)));
+}
+
+export async function mergeActivity(entries: ActivityEntry[]): Promise<boolean> {
+  const current = await loadActivity();
+  const seen = new Set(current.map((item) => item.id));
+  const seenHash = new Set(current.flatMap((item) => [item.hash, item.txHash].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase())));
+  const fresh = entries.filter((item) => item.id && !seen.has(item.id) && !seenHash.has(item.hash.toLowerCase()) && !(item.txHash && seenHash.has(item.txHash.toLowerCase())));
+  if (fresh.length === 0) return false;
+  await write([...fresh, ...current].sort((left, right) => right.time - left.time));
+  return true;
 }
 
 export async function appendActivity(entry: ActivityEntry): Promise<void> {

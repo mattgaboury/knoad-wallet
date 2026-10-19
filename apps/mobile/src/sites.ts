@@ -8,7 +8,14 @@ export type SavedSite = {
   url: string;
   icon?: string;
   connectedAt: number;
+  account?: string;
 };
+
+export function sitesForAccount(sites: SavedSite[], account: string, main: string): SavedSite[] {
+  const owner = account.toLowerCase();
+  const first = main.toLowerCase();
+  return sites.filter((site) => (site.account ?? first).toLowerCase() === owner);
+}
 
 export async function loadSites(): Promise<SavedSite[]> {
   try {

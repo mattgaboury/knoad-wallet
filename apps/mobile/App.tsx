@@ -4,8 +4,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CHAINS, getChain, tokensForChain } from "@knoad/wallet-core";
-import { loadActivity, pendingRows, type ActivityEntry } from "./src/activityLog";
-import { bioFailureMessage, isBioCancel, readBioKey } from "./src/biometric";
+import { activityForAccount, loadActivity, mergeActivity, pendingRows, type ActivityEntry } from "./src/activityLog";
+import { readWalletNfts, type HeldNft } from "./src/nfts";
+import { spendingKeyLine } from "./src/spendingKey";
+import { bioFailureMessage, biometricPrompt, isBioCancel, readBioKey } from "./src/biometric";
 import { shortAddress } from "./src/format";
 import { pairingCodeFromLink } from "./src/pairingLink";
 import { loadSpot, type Spot } from "./src/prices";
@@ -21,12 +23,14 @@ import { BackupScreen } from "./src/screens/BackupScreen";
 import { BrowserDiscover, DappBrowser, TabSwitcher, type BrowserTabView, type DappBrowserHandle } from "./src/screens/BrowserScreen";
 import { CreateScreen } from "./src/screens/CreateScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
+import { NftScreen } from "./src/screens/NftScreen";
 import { PairScreen } from "./src/screens/PairScreen";
 import { ReceiveScreen } from "./src/screens/ReceiveScreen";
 import { RecoverScreen } from "./src/screens/RecoverScreen";
 import { Scanner } from "./src/screens/Scanner";
 import { SecurityScreen } from "./src/screens/SecurityScreen";
 import { SendScreen } from "./src/screens/SendScreen";
+import { AddWalletScreen, ImportWalletScreen } from "./src/screens/WalletSetupScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { TradeScreen } from "./src/screens/TradeScreen";
 import { UnlockScreen } from "./src/screens/UnlockScreen";
@@ -39,14 +43,18 @@ type Route =
   | { name: "send" }
   | { name: "receive" }
   | { name: "asset"; symbol: string }
+  | { name: "nft"; token: HeldNft }
   | { name: "swap" }
   | { name: "browser" }
-  | { name: "pair" };
+  | { name: "pair" }
+  | { name: "addWallet" }
+  | { name: "importKey" };
 
 type Gate =
   | { kind: "send"; to: string; amount: string; symbol: string; fiat: string | null; toName?: string }
   | { kind: "speed" | "cancel"; chainId: number; summary: string }
-  | { kind: "trade"; summary: string };
+  | { kind: "trade"; summary: string }
+  | { kind: "nft"; nft: HeldNft; to: string };
 
 export function App() {
   return (
@@ -98,11 +106,18 @@ function WalletApp() {
   const [auto, setAuto] = useState(false);
   const [ready, setReady] = useState(false);
   const [log, setLog] = useState<ActivityEntry[]>([]);
+  const [nfts, setNfts] = useState<HeldNft[]>([]);
+  const [nftStatus, setNftStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [nftTick, setNftTick] = useState(0);
   const [spot, setSpot] = useState<Spot | null>(null);
   const [settingsNote, setSettingsNote] = useState("");
 
   const auth = ["create", "backup", "unlock", "recover"].includes(wallet.screen);
-  const account = wallet.record?.account ?? null;
+  const account = wallet.address ?? null;
+  const visibleLog = account && wallet.mainAddress ? activityForAccount(log, account, wallet.mainAddress) : log;
+  const [walletsOpen, setWalletsOpen] = useState(false);
+  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupMessage, setSetupMessage] = useState("");
   const pairRef = useRef(wallet.pair);
   const setUriRef = useRef(wallet.setUri);
   const accountRef = useRef(account);
@@ -177,6 +192,22 @@ function WalletApp() {
   }, [wallet.record, wallet.note]);
 
   useEffect(() => {
+    if (!account) return;
+    let live = true;
+    setNftStatus("loading");
+    void (async () => {
+      const read = await readWalletNfts(account);
+      if (!live) return;
+      setNfts(read.nfts);
+      setNftStatus(read.ok ? (read.nfts.length > 0 ? "ready" : "empty") : "error");
+      if (read.activity.length > 0 && (await mergeActivity(read.activity)) && live) setLog(await loadActivity());
+    })();
+    return () => {
+      live = false;
+    };
+  }, [account, nftTick]);
+
+  useEffect(() => {
     void loadSpot().then(setSpot);
   }, [wallet.balances]);
 
@@ -191,6 +222,10 @@ function WalletApp() {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (walletsOpen) {
+        setWalletsOpen(false);
+        return true;
+      }
       if (scan) {
         setScan(false);
         return true;
@@ -236,7 +271,7 @@ function WalletApp() {
       return false;
     });
     return () => sub.remove();
-  }, [scan, bell, gate, route, wallet.screen, wallet.prompt, wallet.hasVault, tabSheet, activeTab]);
+  }, [scan, bell, gate, route, wallet.screen, wallet.prompt, wallet.hasVault, tabSheet, activeTab, walletsOpen]);
 
   useEffect(() => {
     let live = true;
@@ -325,9 +360,20 @@ function WalletApp() {
   }
 
   const tab: TabId = route.name === "tab" ? route.tab : route.name === "browser" ? "browser" : "wallet";
-  const showBar = !auth && !gate && !wallet.prompt && route.name !== "browser" && route.name !== "receive" && route.name !== "asset" && route.name !== "swap" && route.name !== "pair";
+  const showBar = !auth && !gate && !wallet.prompt && route.name !== "browser" && route.name !== "receive" && route.name !== "asset" && route.name !== "nft" && route.name !== "swap" && route.name !== "pair" && route.name !== "addWallet" && route.name !== "importKey";
   const showHeader = !auth && route.name !== "browser" && (route.name === "tab" || Boolean(gate) || Boolean(wallet.prompt));
   const chainView = wallet.chainReport.find((view) => view.chainId === wallet.chainId);
+  const selectedKeyLine = wallet.walletKind === "standard"
+    ? "Standard wallet. This key does not change."
+    : chainView?.checked
+    ? `${chainView.name} · ${spendingKeyLine({
+        deployed: chainView.deployed,
+        pending: pendings.some((row) => row.chainId === wallet.chainId),
+        generation: chainView.generation,
+        signer: chainView.hotSigner,
+        since: chainView.keySince,
+      })}`
+    : "";
 
   async function runGate() {
     if (wallet.prompt) {
@@ -340,7 +386,11 @@ function WalletApp() {
       setRoute({ name: "tab", tab: "activity" });
     } else if (gate.kind === "speed") await wallet.speedUp(gate.chainId);
     else if (gate.kind === "cancel") await wallet.cancelSend(gate.chainId);
-    else {
+    else if (gate.kind === "nft") {
+      await wallet.transferNft(gate.nft, gate.to);
+      setNftTick((value) => value + 1);
+      setRoute({ name: "tab", tab: "activity" });
+    } else {
       await commerce.confirm();
       setRoute({ name: "tab", tab: "activity" });
     }
@@ -354,9 +404,9 @@ function WalletApp() {
     try {
       if (wallet.bioOn) {
         try {
-          await readBioKey();
+          await readBioKey(biometricPrompt(draft?.action));
         } catch (error) {
-          if (!isBioCancel(error)) setGateError(await bioFailureMessage());
+          if (!isBioCancel(error)) setGateError(await bioFailureMessage("approve"));
           return;
         }
       }
@@ -400,7 +450,17 @@ function WalletApp() {
           network: wallet.chain.name,
           action: `Send ${gate.amount} ${gate.symbol}`,
         }
-      : gate
+      : gate?.kind === "nft"
+        ? {
+            assetName: gate.nft.collection,
+            amount: `#${gate.nft.tokenId}`,
+            toName: shortAddress(gate.to),
+            toDetail: gate.to,
+            chainId: gate.nft.chainId,
+            network: getChain(gate.nft.chainId)?.name,
+            action: `Send ${gate.nft.collection} #${gate.nft.tokenId}`,
+          }
+        : gate
         ? {
             chainId: gate.kind === "trade" ? wallet.chainId : gate.chainId,
             network: getChain(gate.kind === "trade" ? wallet.chainId : gate.chainId)?.name,
@@ -490,7 +550,8 @@ function WalletApp() {
         initialTo={wallet.to}
         holdings={wallet.balances}
         spot={spot}
-        recent={log}
+        recent={visibleLog}
+        standard={wallet.walletKind === "standard"}
         onChain={(chainId) => void wallet.chooseChain(chainId)}
         onScan={() => setScan(true)}
         onBack={() => setRoute({ name: "tab", tab: "wallet" })}
@@ -511,6 +572,18 @@ function WalletApp() {
         onSend={openSend}
         onReceive={() => setRoute({ name: "receive" })}
         onBack={() => setRoute({ name: "tab", tab: "wallet" })}
+      />
+    );
+  } else if (route.name === "nft") {
+    body = (
+      <NftScreen
+        nft={route.token}
+        onBack={() => setRoute({ name: "tab", tab: "wallet" })}
+        canTransfer={wallet.walletKind === "knoad"}
+        onTransfer={(to) => {
+          setGateError("");
+          setGate({ kind: "nft", nft: route.token, to });
+        }}
       />
     );
   } else if (route.name === "swap") {
@@ -620,7 +693,7 @@ function WalletApp() {
     body = (
       <ActivityScreen
         pending={pending}
-        log={log}
+        log={visibleLog}
         auto={auto}
         onAuto={(next) => {
           setAuto(next);
@@ -648,7 +721,8 @@ function WalletApp() {
     body = (
       <SecurityScreen
         views={wallet.chainReport.length > 0 ? wallet.chainReport : CHAINS.map((chain) => blank(chain.chainId, chain.name))}
-        scanning={wallet.chainReport.length === 0}
+        scanning={wallet.walletKind !== "standard" && wallet.chainReport.length === 0}
+        standard={wallet.walletKind === "standard"}
         pendingIds={pendings.map((row) => row.chainId)}
         sites={wallet.sites}
         onRecover={() => wallet.setScreen("recover")}
@@ -696,14 +770,52 @@ function WalletApp() {
         message={settingsNote}
       />
     );
+  } else if (route.name === "addWallet") {
+    body = (
+      <AddWalletScreen
+        busy={setupBusy}
+        message={setupMessage}
+        onBack={() => setRoute({ name: "tab", tab: "wallet" })}
+        onAdd={(name, words) => {
+          setSetupBusy(true);
+          setSetupMessage("");
+          void wallet
+            .addKnoadWallet(name, words)
+            .then(() => setRoute({ name: "tab", tab: "wallet" }))
+            .catch((error: unknown) => setSetupMessage(error instanceof Error ? error.message : "Could not add the wallet."))
+            .finally(() => setSetupBusy(false));
+        }}
+      />
+    );
+  } else if (route.name === "importKey") {
+    body = (
+      <ImportWalletScreen
+        busy={setupBusy}
+        message={setupMessage}
+        onBack={() => setRoute({ name: "tab", tab: "wallet" })}
+        onImport={(name, privateKey) => {
+          setSetupBusy(true);
+          setSetupMessage("");
+          void wallet
+            .importStandardWallet(name, privateKey)
+            .then(() => setRoute({ name: "tab", tab: "wallet" }))
+            .catch((error: unknown) => setSetupMessage(error instanceof Error ? error.message : "Could not import the wallet."))
+            .finally(() => setSetupBusy(false));
+        }}
+      />
+    );
   } else if (account) {
     body = (
       <HomeScreen
         address={account}
+        walletName={wallet.walletName}
+        knoad={wallet.walletKind !== "standard"}
         chainId={wallet.chainId}
         holdings={wallet.balances}
         ready={wallet.balancesReady}
-        securityTitle={securityTitle(chainView, pendings.some((row) => row.chainId === wallet.chainId))}
+        securityTitle={wallet.walletKind === "standard" ? "Standard wallet" : securityTitle(chainView, pendings.some((row) => row.chainId === wallet.chainId))}
+        keyLine={selectedKeyLine}
+        onWallets={() => setWalletsOpen(true)}
         onChain={(chainId) => void wallet.chooseChain(chainId)}
         onSend={openSend}
         onReceive={() => setRoute({ name: "receive" })}
@@ -711,7 +823,10 @@ function WalletApp() {
         onSecurity={() => setRoute({ name: "tab", tab: "security" })}
         onAsset={(holding: Holding) => setRoute({ name: "asset", symbol: holding.symbol })}
         onOpenActivity={() => setRoute({ name: "tab", tab: "activity" })}
-        log={log}
+        log={visibleLog}
+        nfts={nfts}
+        nftStatus={nftStatus}
+        onNft={(token) => setRoute({ name: "nft", token })}
       />
     );
   }
@@ -729,7 +844,14 @@ function WalletApp() {
         footer={showBar ? <TabBar active={tab} onChange={(next) => setRoute({ name: "tab", tab: next })} /> : undefined}
         refresh={
           route.name === "tab" && route.tab === "wallet" ? (
-            <RefreshControl refreshing={false} onRefresh={() => void wallet.refresh()} tintColor={theme.mint} />
+            <RefreshControl
+              refreshing={false}
+              onRefresh={() => {
+                void wallet.refresh();
+                setNftTick((value) => value + 1);
+              }}
+              tintColor={theme.mint}
+            />
           ) : undefined
         }
       >
@@ -760,6 +882,43 @@ function WalletApp() {
           }}
         />
       ) : null}
+      <Modal visible={walletsOpen} transparent animationType="fade" onRequestClose={() => setWalletsOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setWalletsOpen(false)}>
+          <Pressable style={styles.sheet} onPress={() => undefined}>
+            <Text style={styles.sheetTitle}>Wallets</Text>
+            {wallet.wallets.map((item) => (
+              <Pressable
+                key={item.id}
+                onPress={() => {
+                  setWalletsOpen(false);
+                  void wallet.selectWallet(item.id);
+                }}
+              >
+                <Text style={styles.sheetRow}>{item.name}</Text>
+                <Text style={styles.note}>{`${shortAddress(item.address)} · ${item.kind === "knoad" ? "KNOAD" : "Standard"}`}</Text>
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => {
+                setWalletsOpen(false);
+                setSetupMessage("");
+                setRoute({ name: "addWallet" });
+              }}
+            >
+              <Text style={styles.sheetRow}>Add a KNOAD wallet</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setWalletsOpen(false);
+                setSetupMessage("");
+                setRoute({ name: "importKey" });
+              }}
+            >
+              <Text style={styles.sheetRow}>Import a private key</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
       <Modal visible={bell} transparent animationType="fade" onRequestClose={() => setBell(false)}>
         <Pressable style={styles.backdrop} onPress={() => setBell(false)}>
           <View style={styles.sheet}>
@@ -805,6 +964,9 @@ function blank(chainId: number, name: string) {
     recoveryEpoch: null,
     canSpend: false,
     needsWords: false,
+    generation: "0",
+    hotSigner: null,
+    keySince: null,
   };
 }
 

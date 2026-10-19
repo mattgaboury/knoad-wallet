@@ -1,4 +1,5 @@
-import { createPublicClient, http, parseAbiItem, toCoinType, toHex, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, http, parseAbiItem, toCoinType, toHex, type Address, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 import { normalize } from "viem/ens";
 import {
@@ -106,6 +107,96 @@ export async function readUserOpLog(
       }
     }
     return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Block time of the newest user operation for this account. A finished miss is `done` so the phone does not search again. */
+export async function latestKeyChange(chainId: number, account: Address): Promise<{ done: boolean; at: number | null }> {
+  try {
+    const publicClient = client(chainId);
+    const latest = await publicClient.getBlockNumber();
+    let end = latest;
+    let step = 10_000n;
+    for (let calls = 0; calls < 12 && end >= 0n; ) {
+      const start = end > step ? end - step + 1n : 0n;
+      try {
+        const logs = await publicClient.getLogs({
+          address: deployments.entryPoint,
+          event: USER_OP_EVENT,
+          args: { sender: account },
+          fromBlock: start,
+          toBlock: end,
+        });
+        calls += 1;
+        const log = logs[logs.length - 1];
+        if (log?.blockNumber != null) {
+          const at = await blockTimeMs(publicClient, log.blockNumber);
+          return at ? { done: true, at } : { done: false, at: null };
+        }
+      } catch {
+        if (step > 2_000n) {
+          step = 2_000n;
+          continue;
+        }
+        return { done: false, at: null };
+      }
+      if (start === 0n) break;
+      end = start - 1n;
+    }
+    return { done: true, at: null };
+  } catch {
+    return { done: false, at: null };
+  }
+}
+
+export async function txBlockTime(chainId: number, hash: string): Promise<number | null> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) return null;
+  try {
+    const publicClient = client(chainId);
+    const receipt = await publicClient.getTransactionReceipt({ hash: hash as Hex });
+    return blockTimeMs(publicClient, receipt.blockNumber);
+  } catch {
+    return null;
+  }
+}
+
+async function blockTimeMs(publicClient: ReturnType<typeof client>, blockNumber: bigint): Promise<number | null> {
+  const block = await publicClient.getBlock({ blockNumber });
+  const ms = Number(block.timestamp) * 1000;
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+export async function sendOwnedTransaction(args: { chainId: number; privateKey: Hex; to: Address; data: Hex; value: bigint }): Promise<Hex> {
+  if (args.chainId !== 1 && args.chainId !== 8453) throw new Error("This wallet sends on Ethereum or Base.");
+  const env = chainEnv(args.chainId);
+  if (!env.rpcUrl) throw new Error(`Could not reach ${env.name}.`);
+  const account = privateKeyToAccount(args.privateKey);
+  const wallet = createWalletClient({
+    account,
+    transport: http(env.rpcUrl),
+    chain: {
+      id: env.chainId,
+      name: env.name,
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [env.rpcUrl] } },
+    },
+  });
+  try {
+    return await wallet.sendTransaction({ to: args.to, data: args.data, value: args.value });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/insufficient funds/i.test(message)) throw new Error("Not enough ETH for this send.");
+    throw new Error("Could not send.");
+  }
+}
+
+export async function readReceipt(chainId: number, hash: string): Promise<"success" | "reverted" | null> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) return null;
+  try {
+    const receipt = await client(chainId).getTransactionReceipt({ hash: hash as Hex });
+    return receipt.status === "success" ? "success" : "reverted";
   } catch {
     return null;
   }
