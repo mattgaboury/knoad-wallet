@@ -1,4 +1,5 @@
 import { getAddress, isAddress, type Address, type Hex } from "viem";
+import { CHAINS } from "./chains";
 import { KEY_P256, KEY_SECP256K1, type KeyType } from "./types";
 
 /** One spending key prepared for a recovery step. Later steps use a different key. */
@@ -71,6 +72,11 @@ export function emptyChainState(keyType: KeyType = KEY_SECP256K1): ChainAccountS
 
 export function chainState(record: VaultRecord, chainId: number): ChainAccountState {
   return record.chains[String(chainId)] ?? emptyChainState();
+}
+
+/** Live chains that still need a first spending key derived from the 24 words. */
+export function chainsMissingFirstKey(record: VaultRecord, chains: readonly { chainId: number }[] = CHAINS): number[] {
+  return chains.filter((chain) => !chainState(record, chain.chainId).initialSigner).map((chain) => chain.chainId);
 }
 
 export function withChainState(record: VaultRecord, chainId: number, state: ChainAccountState): VaultRecord {

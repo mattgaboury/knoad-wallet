@@ -24,6 +24,11 @@ sepolia = "${SEPOLIA_RPC_URL}"
 base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
 mainnet = "${MAINNET_RPC_URL}"
 base = "${BASE_RPC_URL}"
+bnb = "${BNB_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+robinhood = "${ROBINHOOD_RPC_URL}"
+monad = "${MONAD_RPC_URL}"
+apechain = "${APECHAIN_RPC_URL}"
 
 [invariant]
 runs = 16

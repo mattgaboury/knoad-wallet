@@ -17,17 +17,22 @@ import {
 } from "@knoad/wallet-core";
 import { chainEnv, QUOTE_URL } from "./config";
 
+function viemChain(chainId: number, rpcUrl: string) {
+  const chain = chainEnv(chainId);
+  return {
+    id: chain.chainId,
+    name: chain.name,
+    nativeCurrency: chain.native,
+    rpcUrls: { default: { http: [rpcUrl] } },
+  };
+}
+
 function client(chainId: number) {
   const chain = chainEnv(chainId);
   if (!chain.rpcUrl) throw new Error(`Could not reach ${chain.name}.`);
   return createPublicClient({
     transport: http(chain.rpcUrl),
-    chain: {
-      id: chain.chainId,
-      name: chain.name,
-      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-      rpcUrls: { default: { http: [chain.rpcUrl] } },
-    },
+    chain: viemChain(chainId, chain.rpcUrl),
   });
 }
 
@@ -176,18 +181,13 @@ export async function sendOwnedTransaction(args: { chainId: number; privateKey: 
   const wallet = createWalletClient({
     account,
     transport: http(env.rpcUrl),
-    chain: {
-      id: env.chainId,
-      name: env.name,
-      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-      rpcUrls: { default: { http: [env.rpcUrl] } },
-    },
+    chain: viemChain(args.chainId, env.rpcUrl),
   });
   try {
     return await wallet.sendTransaction({ to: args.to, data: args.data, value: args.value });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (/insufficient funds/i.test(message)) throw new Error("Not enough ETH for this send.");
+    if (/insufficient funds/i.test(message)) throw new Error(`Not enough ${env.native.symbol} for this send.`);
     throw new Error("Could not send.");
   }
 }

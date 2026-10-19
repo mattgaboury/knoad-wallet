@@ -10,7 +10,10 @@ export type ChainInfo = {
   explorer: string;
   rpcEnv: string;
   bundlerEnv: string;
+  native: { name: string; symbol: string; decimals: number };
 };
+
+const ETH = { name: "Ether", symbol: "ETH", decimals: 18 };
 
 /**
  * Ethereum and Base are confirmed. Their testnets follow the same precompiles:
@@ -26,6 +29,7 @@ export const CHAINS: readonly ChainInfo[] = [
     explorer: "https://etherscan.io",
     rpcEnv: "KNOAD_RPC_1",
     bundlerEnv: "KNOAD_BUNDLER_1",
+    native: ETH,
   },
   {
     chainId: 8453,
@@ -35,6 +39,7 @@ export const CHAINS: readonly ChainInfo[] = [
     explorer: "https://basescan.org",
     rpcEnv: "KNOAD_RPC_8453",
     bundlerEnv: "KNOAD_BUNDLER_8453",
+    native: ETH,
   },
   {
     chainId: 11155111,
@@ -44,6 +49,7 @@ export const CHAINS: readonly ChainInfo[] = [
     explorer: "https://sepolia.etherscan.io",
     rpcEnv: "KNOAD_RPC_11155111",
     bundlerEnv: "KNOAD_BUNDLER_11155111",
+    native: ETH,
   },
   {
     chainId: 84532,
@@ -53,6 +59,64 @@ export const CHAINS: readonly ChainInfo[] = [
     explorer: "https://sepolia.basescan.org",
     rpcEnv: "KNOAD_RPC_84532",
     bundlerEnv: "KNOAD_BUNDLER_84532",
+    native: ETH,
+  },
+];
+
+/**
+ * Registered, not advertised. A chain moves into CHAINS only after P-256,
+ * EntryPoint v0.9, and the factory are confirmed on that chain.
+ */
+export const PREPARED_CHAINS: readonly ChainInfo[] = [
+  {
+    chainId: 56,
+    name: "BNB Smart Chain",
+    entryPoint: ENTRY_POINT_V09,
+    p256: false,
+    explorer: "https://bscscan.com",
+    rpcEnv: "KNOAD_RPC_56",
+    bundlerEnv: "KNOAD_BUNDLER_56",
+    native: { name: "BNB", symbol: "BNB", decimals: 18 },
+  },
+  {
+    chainId: 42161,
+    name: "Arbitrum",
+    entryPoint: ENTRY_POINT_V09,
+    p256: false,
+    explorer: "https://arbiscan.io",
+    rpcEnv: "KNOAD_RPC_42161",
+    bundlerEnv: "KNOAD_BUNDLER_42161",
+    native: ETH,
+  },
+  {
+    chainId: 4663,
+    name: "Robinhood Chain",
+    entryPoint: ENTRY_POINT_V09,
+    p256: false,
+    explorer: "https://robinhoodchain.blockscout.com",
+    rpcEnv: "KNOAD_RPC_4663",
+    bundlerEnv: "KNOAD_BUNDLER_4663",
+    native: ETH,
+  },
+  {
+    chainId: 143,
+    name: "Monad",
+    entryPoint: ENTRY_POINT_V09,
+    p256: false,
+    explorer: "https://monadscan.com",
+    rpcEnv: "KNOAD_RPC_143",
+    bundlerEnv: "KNOAD_BUNDLER_143",
+    native: { name: "Monad", symbol: "MON", decimals: 18 },
+  },
+  {
+    chainId: 33139,
+    name: "ApeChain",
+    entryPoint: ENTRY_POINT_V09,
+    p256: false,
+    explorer: "https://apescan.io",
+    rpcEnv: "KNOAD_RPC_33139",
+    bundlerEnv: "KNOAD_BUNDLER_33139",
+    native: { name: "ApeCoin", symbol: "APE", decimals: 18 },
   },
 ];
 

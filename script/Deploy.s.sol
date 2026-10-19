@@ -11,9 +11,12 @@ import {DeterministicDeploy} from "./DeterministicDeploy.sol";
 /// @dev Dry run prints the addresses. Broadcast sends them through the deterministic
 ///      deployer and requires DEPLOYER_PRIVATE_KEY. Ethereum and Base stay blocked
 ///      until an audit, unless KNOAD_ALLOW_MAINNET=1.
+///      BNB, Arbitrum, Robinhood Chain, Monad, and ApeChain revert unless
+///      KNOAD_ALLOW_CHAIN equals that chain id.
 ///      forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast
 contract Deploy is Script {
     error MainnetBlocked();
+    error ChainBlocked();
     error MissingDeployerKey();
 
     function run() external {
@@ -37,6 +40,12 @@ contract Deploy is Script {
 
         if (block.chainid == 1 || block.chainid == 8453) {
             if (!vm.envOr("KNOAD_ALLOW_MAINNET", false)) revert MainnetBlocked();
+        }
+        if (
+            block.chainid == 56 || block.chainid == 42161 || block.chainid == 4663 || block.chainid == 143
+                || block.chainid == 33139
+        ) {
+            if (vm.envOr("KNOAD_ALLOW_CHAIN", uint256(0)) != block.chainid) revert ChainBlocked();
         }
 
         uint256 key = vm.envOr("DEPLOYER_PRIVATE_KEY", uint256(0));

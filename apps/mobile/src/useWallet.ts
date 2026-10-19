@@ -1073,7 +1073,7 @@ export function useWallet() {
       setNote("Sent. Waiting for the network.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not send.";
-      if (message.startsWith("Not enough ETH") || message.startsWith("The network fee could not be sized")) throw error;
+      if (message.startsWith("Not enough ") || message.startsWith("The network fee could not be sized")) throw error;
       setNote(message);
     }
   }
@@ -1135,7 +1135,7 @@ export function useWallet() {
       void loadBalances(standard.address);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not send.";
-      if (message.startsWith("Not enough ETH")) throw error;
+      if (message.startsWith("Not enough ")) throw error;
       setNote(message);
     }
   }
@@ -1168,7 +1168,7 @@ export function useWallet() {
         chainName,
       });
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("Not enough ETH")) throw error;
+      if (error instanceof Error && error.message.startsWith("Not enough ")) throw error;
       return;
     }
     const native = await readNativeBalance(selected, source.account);
@@ -1377,24 +1377,24 @@ export function useWallet() {
       try {
         const amount = await readNativeBalance(item.chainId, account);
         rows.push({
-          key: `${item.chainId}:ETH`,
+          key: `${item.chainId}:${item.native.symbol}`,
           chainId: item.chainId,
           chainName: item.name,
-          symbol: "ETH",
+          symbol: item.native.symbol,
           amount,
-          decimals: 18,
-          text: formatUnits(amount, 18),
+          decimals: item.native.decimals,
+          text: formatUnits(amount, item.native.decimals),
           native: true,
           unavailable: false,
         });
       } catch {
         rows.push({
-          key: `${item.chainId}:ETH`,
+          key: `${item.chainId}:${item.native.symbol}`,
           chainId: item.chainId,
           chainName: item.name,
-          symbol: "ETH",
+          symbol: item.native.symbol,
           amount: 0n,
-          decimals: 18,
+          decimals: item.native.decimals,
           text: "—",
           native: true,
           unavailable: true,
@@ -1403,7 +1403,7 @@ export function useWallet() {
       if (item.chainId === 1 || item.chainId === 8453) {
         try {
           for (const token of await readBalances(item.chainId, account)) {
-            if (token.symbol === "ETH") continue;
+            if (token.native) continue;
             rows.push({
               key: `${item.chainId}:${token.symbol}`,
               chainId: item.chainId,

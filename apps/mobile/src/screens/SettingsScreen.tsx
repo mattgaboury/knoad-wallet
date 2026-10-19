@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Linking, StyleSheet, Text, TextInput, View } from "react-native";
 import Constants from "expo-constants";
-import { CHAINS } from "@knoad/wallet-core";
+import { CHAINS, PREPARED_CHAINS } from "@knoad/wallet-core";
 import { probeChainLinks, probeQuote, type ChainLink } from "../chain";
 import { COINGECKO_API_KEY, COMMERCE_SUBMIT_ENABLED, WALLETCONNECT_PROJECT_ID } from "../config";
 import { theme } from "../theme";
@@ -60,6 +60,17 @@ export function SettingsScreen(props: {
         <Status label="WalletConnect" value={WALLETCONNECT_PROJECT_ID ? "Project id set" : "Add a project id"} />
         <Status label="Quotes" value={quoteLabel(quotes)} />
         <Status label="Swap signing" value={COMMERCE_SUBMIT_ENABLED ? "On" : "Off"} />
+      </Section>
+      <Section title="Not ready">
+        {PREPARED_CHAINS.map((chain) => (
+          <View key={chain.chainId} style={styles.switchRow}>
+            <ChainMark chainId={chain.chainId} size={22} />
+            <View style={styles.copy}>
+              <Text style={styles.row}>{chain.name}</Text>
+              <Text style={styles.hint}>{`${chain.native.symbol} · Not ready`}</Text>
+            </View>
+          </View>
+        ))}
       </Section>
       <Section title="Security">
         <Row label="Change password" onPress={() => setOpen((current) => !current)} />

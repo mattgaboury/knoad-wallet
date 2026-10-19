@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getAddress, isAddress } from "viem";
-import { CHAINS, formatUnits, tokensForChain } from "@knoad/wallet-core";
+import { CHAINS, formatUnits, getChain, tokensForChain } from "@knoad/wallet-core";
 import type { ActivityEntry } from "../activityLog";
 import { readNetworkConditions, resolveName } from "../chain";
 import { loadContacts, removeContact, renameContact, saveContact, type SavedContact } from "../contacts";
@@ -29,7 +29,8 @@ export function SendScreen(props: {
 }) {
   const [to, setTo] = useState(props.initialTo);
   const [amount, setAmount] = useState("");
-  const [symbol, setSymbol] = useState("ETH");
+  const native = getChain(props.chainId)?.native ?? { name: "Ether", symbol: "ETH", decimals: 18 };
+  const [symbol, setSymbol] = useState(native.symbol);
   const [chainsOpen, setChainsOpen] = useState(false);
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [contactsOpen, setContactsOpen] = useState(false);
@@ -38,7 +39,7 @@ export function SendScreen(props: {
   const [lookup, setLookup] = useState<"idle" | "looking" | "missing">("idle");
   const [pickedName, setPickedName] = useState<string | null>(null);
   const [feeWei, setFeeWei] = useState<bigint | null>(null);
-  const choices = ["ETH", ...tokensForChain(props.chainId).filter((token) => !token.native).map((token) => token.symbol)];
+  const choices = [native.symbol, ...tokensForChain(props.chainId).filter((token) => !token.native).map((token) => token.symbol)];
   const holding = props.holdings.find((row) => row.chainId === props.chainId && row.symbol === symbol);
   const valid = Boolean(resolved);
 
@@ -80,7 +81,7 @@ export function SendScreen(props: {
   }, [to, props.chainId]);
 
   useEffect(() => {
-    if (!choices.includes(symbol)) setSymbol("ETH");
+    if (!choices.includes(symbol)) setSymbol(native.symbol);
   }, [props.chainId]);
 
   useEffect(() => {
@@ -93,12 +94,12 @@ export function SendScreen(props: {
     };
   }, [props.chainId]);
 
-  const price = !isTestnet(props.chainId) && props.spot ? (symbol === "USDC" ? props.spot.usdc : props.spot.eth) : null;
+  const price = !isTestnet(props.chainId) && props.spot ? (symbol === "USDC" ? props.spot.usdc : symbol === "ETH" || symbol === "WETH" ? props.spot.eth : null) : null;
   const numeric = Number(amount);
   const fiat = price !== null && Number.isFinite(numeric) ? usd(numeric * price) : null;
   const tooMuch = Boolean(holding && !holding.unavailable && Number.isFinite(numeric) && numeric > Number(holding.text));
   const feeText = feeWei === null ? null : trimAmount(formatUnits(feeWei, 18));
-  const feeFiat = feeText && props.spot?.eth && !isTestnet(props.chainId) ? usd(Number(feeText) * props.spot.eth) : null;
+  const feeFiat = feeText && native.symbol === "ETH" && props.spot?.eth && !isTestnet(props.chainId) ? usd(Number(feeText) * props.spot.eth) : null;
 
   function max() {
     if (!holding || holding.unavailable) return;
@@ -222,7 +223,7 @@ export function SendScreen(props: {
         <Summary label="Send" value={amount ? `${amount} ${symbol}` : "—"} hint={fiat ?? undefined} />
         <Summary label="To" value={resolved ? (displayName ? `${displayName} · ${shortAddress(resolved)}` : shortAddress(resolved)) : "—"} />
         <Summary label="Network" value={props.chainName} />
-        <Summary label="Estimated network fee" value={feeText ? `${feeText} ETH` : "—"} hint={feeFiat ? `≈ ${feeFiat}` : undefined} />
+        <Summary label="Estimated network fee" value={feeText ? `${feeText} ${native.symbol}` : "—"} hint={feeFiat ? `≈ ${feeFiat}` : undefined} />
       </View>
 
       {tooMuch ? <Text style={styles.warn}>More than your balance on this chain.</Text> : null}

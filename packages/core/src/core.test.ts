@@ -46,9 +46,13 @@ import {
   encodeTypedDataSignature,
   erc7739TypedData,
   hotKeyTypeForChain,
+  CHAINS,
+  PREPARED_CHAINS,
   migrateVaultRecord,
   migrateVaultFile,
   chainState,
+  chainsMissingFirstKey,
+  emptyChainState,
   withChainState,
   resolveChain,
   createVaultKey,
@@ -507,6 +511,25 @@ test("chain registry keeps bundler URLs out of the source and gates P-256", () =
   assert.equal(hotKeyTypeForChain(1), 2);
   assert.equal(hotKeyTypeForChain(8453), 2);
   assert.throws(() => hotKeyTypeForChain(10));
+  assert.deepEqual(
+    CHAINS.map((chain) => chain.native.symbol),
+    ["ETH", "ETH", "ETH", "ETH"],
+  );
+  assert.deepEqual(
+    PREPARED_CHAINS.map((chain) => [chain.chainId, chain.native.symbol, chain.p256]),
+    [
+      [56, "BNB", false],
+      [42161, "ETH", false],
+      [4663, "ETH", false],
+      [143, "MON", false],
+      [33139, "APE", false],
+    ],
+  );
+  for (const chain of PREPARED_CHAINS) {
+    assert.equal(CHAINS.some((live) => live.chainId === chain.chainId), false);
+    assert.equal(chain.entryPoint, "0x433709009B8330FDa32311DF1C2AFA402eD8D009");
+    assert.throws(() => hotKeyTypeForChain(chain.chainId));
+  }
   const base = resolveChain(8453, { KNOAD_RPC_8453: "https://rpc.example", KNOAD_BUNDLER_8453: "https://bundler.example" });
   assert.equal(base.rpcUrl, "https://rpc.example");
   assert.equal(base.bundlerUrl, "https://bundler.example");
@@ -517,6 +540,26 @@ test("chain registry keeps bundler URLs out of the source and gates P-256", () =
   assert.equal(deployments.factory, getAddress("0x640b63604581cC0b1326025a57C188BCc6160Dc9"));
   assert.equal(deployments.verifier, getAddress("0x39305881423DC27C6238bE3A343787772534e764"));
   assert.equal(deployments.implementation, getAddress("0x70044945917051ce6DcCD244C4d4288FE14A9f28"));
+});
+
+test("a live chain without a first spending key is named", async () => {
+  const account = deriveRecovery(MNEMONIC, 0, 0).address;
+  const prepared = await prepareActivations(MNEMONIC, account, [1, 8453]);
+  const chains: Record<string, ReturnType<typeof emptyChainState>> = {};
+  for (const item of prepared) {
+    chains[String(item.chainId)] = { ...emptyChainState(1), initialSigner: item.initialSigner };
+  }
+  const record = {
+    v: 3 as const,
+    accountIndex: 0,
+    account,
+    recovery: account,
+    originalRecovery: account,
+    recoveryEpoch: "0",
+    selectedChainId: 84532,
+    chains,
+  };
+  assert.deepEqual(chainsMissingFirstKey(record), [11155111, 84532]);
 });
 
 test("vault records keep a separate generation per chain", () => {
