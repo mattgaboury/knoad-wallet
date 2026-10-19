@@ -22,10 +22,10 @@ async function run(name: string | undefined, args: Map<string, string>) {
     const passphrase = args.get("passphrase") ?? "";
     return {
       recovery: deriveRecovery(mnemonic, account, epoch, passphrase).address,
-      initialHot: deriveInitialHot(mnemonic, account, Number(args.get("chain") ?? "84532"), passphrase).address,
+      initialHot: deriveInitialHot(mnemonic, account, Number(args.get("chain") ?? "8453"), passphrase).address,
       paths: {
         recovery: recoveryPath(account, epoch),
-        initialHot: initialHotPath(account, Number(args.get("chain") ?? "84532")),
+        initialHot: initialHotPath(account, Number(args.get("chain") ?? "8453")),
       },
     };
   }

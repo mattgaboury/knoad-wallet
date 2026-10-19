@@ -12,12 +12,12 @@ export type RelayRecord = {
 const KEY_MATERIAL = /mnemonic|privateKey|seedphrase|seedPhrase|"seed"|recoveryPhrase/i;
 
 export function emptyRelay(): RelayRecord {
-  return { account: null, chainId: 84532, approvedOrigins: [], projectId: "", topic: null };
+  return { account: null, chainId: 8453, approvedOrigins: [], projectId: "", topic: null };
 }
 
 export function sanitizeRelay(value: unknown): RelayRecord {
   const raw = (value && typeof value === "object" ? value : {}) as Partial<RelayRecord>;
-  const chainId = typeof raw.chainId === "number" && getChain(raw.chainId) ? raw.chainId : 84532;
+  const chainId = typeof raw.chainId === "number" && getChain(raw.chainId) ? raw.chainId : 8453;
   const record: RelayRecord = {
     account: typeof raw.account === "string" ? raw.account : null,
     chainId,

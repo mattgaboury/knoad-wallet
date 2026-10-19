@@ -95,7 +95,7 @@ export function migrateVaultRecord(value: unknown): VaultRecord {
       recovery: asAddress(raw.recovery, "recovery"),
       originalRecovery: asAddress(raw.originalRecovery ?? raw.recovery, "original recovery"),
       recoveryEpoch: typeof raw.recoveryEpoch === "string" ? raw.recoveryEpoch : "0",
-      selectedChainId: asChainId(raw.selectedChainId, 84532),
+      selectedChainId: asChainId(raw.selectedChainId, 8453),
       chains: raw.chains as Record<string, ChainAccountState>,
     };
   }
@@ -226,7 +226,7 @@ function parseVaultFile(value: unknown): VaultFile {
   const wallets = Array.isArray(raw.wallets) ? raw.wallets.map(parseWallet) : [];
   if (wallets.length === 0) throw new Error("Vault record is empty.");
   const selectedId = typeof raw.selectedId === "string" && wallets.some((wallet) => wallet.id === raw.selectedId) ? raw.selectedId : wallets[0].id;
-  return { v: 4, selectedId, selectedChainId: asChainId(raw.selectedChainId, 84532), wallets };
+  return { v: 4, selectedId, selectedChainId: asChainId(raw.selectedChainId, 8453), wallets };
 }
 
 function parseWallet(value: unknown): StoredWallet {

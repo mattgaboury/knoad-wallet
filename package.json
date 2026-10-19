@@ -8,9 +8,10 @@
     "packages/brand"
   ],
   "scripts": {
-    "test": "tsx --test packages/core/src/*.test.ts packages/cli/src/*.test.ts packages/brand/src/*.test.ts apps/extension/src/*.test.ts apps/quote/src/*.test.ts apps/mobile/src/*.test.ts",
+    "test": "tsx --test packages/core/src/*.test.ts packages/cli/src/*.test.ts packages/brand/src/*.test.ts apps/extension/src/*.test.ts apps/quote/src/*.test.ts apps/mobile/src/*.test.ts scripts/rehearse/*.test.ts",
     "quote": "npm --prefix apps/quote start",
     "live": "tsx scripts/live/run.ts",
+    "rehearse": "tsx scripts/rehearse/public.ts",
     "recover": "tsx packages/cli/src/main.ts"
   },
   "devDependencies": {

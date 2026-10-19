@@ -1,7 +1,7 @@
 import { resolveChain, type Env } from "@knoad/wallet-core";
 
-/** Base Sepolia. Mainnet chains stay available from the switcher. */
-export const DEFAULT_CHAIN_ID = 84532;
+/** Base. Ethereum, Sepolia, and Base Sepolia stay available from the switcher. */
+export const DEFAULT_CHAIN_ID = 8453;
 
 export const WALLETCONNECT_PROJECT_ID = process.env.EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "";
 
