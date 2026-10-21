@@ -1,21 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import * as WebBrowser from "expo-web-browser";
+import { createURL } from "expo-linking";
 import { getAddress } from "viem";
 import { DEFAULT_CHAIN_ID } from "../config";
 import { shortAddress } from "../format";
 import { createIdentityClient, IdentityRequestError, type WalletAppAccount } from "../identity/client";
-import {
-  DISCORD_RETURN_URL,
-  initialSelection,
-  linkSelection,
-  LINK_COPY,
-  staysUnlinked,
-} from "../identity/copy";
+import { initialSelection, linkSelection, LINK_COPY, staysUnlinked } from "../identity/copy";
+import { identityCodeFromLink } from "../identity/link";
 import { clearLinkSession, readLinkSession, saveLinkSession } from "../identity/session";
 import { theme } from "../theme";
 import { Card, OutlineButton, PageTitle, PrimaryButton } from "../ui/chrome";
 
 const ERC6492_MARK = "6492649264926492649264926492649264926492649264926492649264926492";
+
+WebBrowser.maybeCompleteAuthSession();
 
 type WalletRow = { id: string; name: string; address: string; kind: "knoad" | "standard" };
 
@@ -65,27 +64,34 @@ export function ConnectedAccountsScreen(props: {
     };
   }, [client]);
 
-  useEffect(() => {
-    if (!props.handoff) return;
-    const key = `${props.handoff.state}:${props.handoff.code}`;
-    if (seenHandoff.current === key) return;
-    seenHandoff.current = key;
-    const { code, state } = props.handoff;
-    props.onHandoffConsumed();
-    setBusy(true);
-    setMessage("");
-    void client
-      .exchange(code, state)
-      .then(async (exchanged) => {
+  const acceptHandoff = useCallback(
+    async (code: string, state: string) => {
+      const key = `${state}:${code}`;
+      if (seenHandoff.current === key) return;
+      seenHandoff.current = key;
+      props.onHandoffConsumed();
+      setBusy(true);
+      setMessage("");
+      try {
+        const exchanged = await client.exchange(code, state);
         await saveLinkSession({ token: exchanged.token, expiresAt: exchanged.expiresAt });
         setToken(exchanged.token);
         await load(exchanged.token);
         setSelected(initialSelection(props.wallets.map((wallet) => wallet.id), props.activeId));
         setPhase("pick");
-      })
-      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Discord did not connect."))
-      .finally(() => setBusy(false));
-  }, [client, props]);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Discord did not connect.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [client, props],
+  );
+
+  useEffect(() => {
+    if (!props.handoff) return;
+    void acceptHandoff(props.handoff.code, props.handoff.state);
+  }, [acceptHandoff, props.handoff]);
 
   const linked = (account?.addresses ?? []).map((row) => row.address);
   const selection = linkSelection({
@@ -99,8 +105,16 @@ export function ConnectedAccountsScreen(props: {
     setBusy(true);
     setMessage("");
     try {
-      const started = await client.start(DISCORD_RETURN_URL);
-      await Linking.openURL(started.authorizeUrl);
+      const returnUrl = createURL("discord");
+      const started = await client.start(returnUrl);
+      const result = await WebBrowser.openAuthSessionAsync(started.authorizeUrl, returnUrl);
+      if (result.type !== "success") return;
+      const handoff = identityCodeFromLink(result.url);
+      if (!handoff) {
+        setMessage("KNOAD could not read the return from Discord.");
+        return;
+      }
+      await acceptHandoff(handoff.code, handoff.state);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not open Discord.");
     } finally {

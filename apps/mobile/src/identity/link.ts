@@ -13,7 +13,10 @@ export function identityCodeFromLink(url: string): { code: string; state: string
     (parsed.host === "knoad.io" || parsed.host === "www.knoad.io") &&
     parsed.pathname === "/wallet/discord";
   const appReturn = parsed.protocol === "knoad:" && parsed.host === "discord";
-  if (!httpsReturn && !appReturn) return null;
+  const expoReturn =
+    (parsed.protocol === "exp:" || parsed.protocol === "exps:") &&
+    (parsed.pathname === "/--/discord" || parsed.pathname === "/discord");
+  if (!httpsReturn && !appReturn && !expoReturn) return null;
   const code = parsed.searchParams.get("code");
   const state = parsed.searchParams.get("state");
   if (!code || !state) return null;

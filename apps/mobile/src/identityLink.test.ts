@@ -9,6 +9,10 @@ test("a Discord return is not a WalletConnect code", () => {
   assert.deepEqual(identityCodeFromLink("wc:abc@2?symKey=ffff"), null);
   assert.deepEqual(identityCodeFromLink("https://knoad.io/wallet/discord?code=one&state=two"), { code: "one", state: "two" });
   assert.deepEqual(identityCodeFromLink("knoad://discord?code=one&state=two"), { code: "one", state: "two" });
+  assert.deepEqual(identityCodeFromLink("exp://192.168.0.136:8081/--/discord?code=one&state=two"), {
+    code: "one",
+    state: "two",
+  });
   assert.equal(identityCodeFromLink("https://evil.example/wallet/discord?code=one&state=two"), null);
 });
 

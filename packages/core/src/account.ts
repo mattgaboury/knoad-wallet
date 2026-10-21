@@ -32,7 +32,7 @@ import {
   type Policy,
   type RecoveryRequest,
 } from "./types";
-import { defaultTestGas, type OperationGas } from "./gas";
+import { defaultTestGas, type OperationGas } from "./operationGas";
 
 const policyComponents = [
   { name: "periodLimit", type: "uint128" },
