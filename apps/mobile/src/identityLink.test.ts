@@ -17,6 +17,7 @@ test("a Discord return is not a WalletConnect code", () => {
 });
 
 test("only the active wallet starts selected, and a full profile stops the rest", () => {
+  assert.deepEqual(initialSelection(["only"], null), ["only"]);
   assert.deepEqual(initialSelection(["main", "other"], "main"), ["main"]);
   assert.deepEqual(initialSelection(["main", "other"], "missing"), []);
   const open = linkSelection({
@@ -66,7 +67,8 @@ test("the phone sends signatures and the one-time code, never a key or Discord t
   assert.match(calls.find((call) => call.url.endsWith("/confirm"))?.body ?? "", /"signature":"0xsig"/);
   assert.equal(staysUnlinked("This account is not deployed on that chain yet."), true);
   assert.equal(staysUnlinked("This signature checks Base. This account is not on Base yet."), true);
-  assert.match(LINK_COPY.safetyBody, /Your wallet stays yours/);
+  assert.match(LINK_COPY.reassurance, /private keys stay private/);
+  assert.equal(LINK_COPY.continue, "Continue with Discord");
 });
 
 function json(body: unknown): Response {

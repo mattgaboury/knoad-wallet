@@ -1,9 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Linking, StyleSheet, Text, TextInput, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Constants from "expo-constants";
 import { CHAINS, PREPARED_CHAINS } from "@knoad/wallet-core";
 import { probeChainLinks, probeQuote, type ChainLink } from "../chain";
 import { COINGECKO_API_KEY, COMMERCE_SUBMIT_ENABLED, WALLETCONNECT_PROJECT_ID } from "../config";
+import { createIdentityClient } from "../identity/client";
+import { LINK_COPY } from "../identity/copy";
+import { readLinkSession } from "../identity/session";
 import { theme } from "../theme";
 import { PageTitle, PrimaryButton, Toggle } from "../ui/chrome";
 import { ChainMark } from "../ui/marks";
@@ -18,6 +21,7 @@ export function SettingsScreen(props: {
   onSites: () => void;
   onLegal: () => void;
   linkEnabled?: boolean;
+  apiUrl?: string;
   onConnected?: () => void;
   message: string;
 }) {
@@ -26,6 +30,8 @@ export function SettingsScreen(props: {
   const [again, setAgain] = useState("");
   const [links, setLinks] = useState<ChainLink[] | null>(null);
   const [quotes, setQuotes] = useState<"ready" | "unreachable" | "notset" | null>(null);
+  const [discordName, setDiscordName] = useState<string | null>(null);
+  const [discordLinked, setDiscordLinked] = useState(false);
   const version = Constants.expoConfig?.version ?? "0.1.0";
 
   useEffect(() => {
@@ -40,6 +46,29 @@ export function SettingsScreen(props: {
       live = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!props.linkEnabled || !props.apiUrl) return;
+    let live = true;
+    const client = createIdentityClient(props.apiUrl);
+    void readLinkSession().then(async (session) => {
+      if (!live || !session) return;
+      try {
+        const account = await client.account(session.token);
+        if (!live) return;
+        setDiscordLinked(Boolean(account.profile));
+        setDiscordName(account.profile?.displayName || null);
+      } catch {
+        if (live) {
+          setDiscordLinked(false);
+          setDiscordName(null);
+        }
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [props.apiUrl, props.linkEnabled]);
 
   return (
     <View style={styles.wrap}>
@@ -108,9 +137,13 @@ export function SettingsScreen(props: {
         </View>
       </Section>
       {props.linkEnabled && props.onConnected ? (
-        <Section title="Connected Accounts">
-          <Text style={styles.hint}>Link the wallets on this phone to Discord. No transaction, and your keys stay here.</Text>
-          <Row label="Discord" onPress={props.onConnected} />
+        <Section title={LINK_COPY.title}>
+          <Text style={styles.hint}>{LINK_COPY.settingsLead}</Text>
+          <AccountRow
+            label={discordName ?? "Discord"}
+            detail={discordLinked ? LINK_COPY.settingsConnected : LINK_COPY.settingsConnect}
+            onPress={props.onConnected}
+          />
         </Section>
       ) : null}
       <Section title="Connections">
@@ -164,6 +197,15 @@ function Row(props: { label: string; onPress: () => void }) {
     <Text onPress={props.onPress} style={styles.rowButton}>
       {props.label}
     </Text>
+  );
+}
+
+function AccountRow(props: { label: string; detail: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={props.onPress} style={styles.switchRow}>
+      <Text style={styles.row}>{props.label}</Text>
+      <Text style={styles.rowButton}>{props.detail}</Text>
+    </Pressable>
   );
 }
 

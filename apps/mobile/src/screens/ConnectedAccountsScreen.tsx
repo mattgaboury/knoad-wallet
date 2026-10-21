@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
 import { createURL } from "expo-linking";
-import { getAddress } from "viem";
 import { DEFAULT_CHAIN_ID } from "../config";
 import { shortAddress } from "../format";
 import { createIdentityClient, IdentityRequestError, type WalletAppAccount } from "../identity/client";
@@ -31,11 +31,11 @@ export function ConnectedAccountsScreen(props: {
   const client = useMemo(() => createIdentityClient(props.apiUrl), [props.apiUrl]);
   const [token, setToken] = useState<string | null>(null);
   const [account, setAccount] = useState<WalletAppAccount | null>(null);
-  const [phase, setPhase] = useState<"ready" | "pick" | "success" | "conflict">("ready");
+  const [phase, setPhase] = useState<"ready" | "pick" | "manage" | "conflict">("ready");
   const [selected, setSelected] = useState<string[]>(() => initialSelection(props.wallets.map((wallet) => wallet.id), props.activeId));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [safety, setSafety] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const [heldProofs, setHeldProofs] = useState<{ address: string; signature: string }[]>([]);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [confirmPrimary, setConfirmPrimary] = useState<string | null>(null);
@@ -128,7 +128,7 @@ export function ConnectedAccountsScreen(props: {
       await client.confirm(token, proofs, confirmUnverified);
       await load(token);
       setHeldProofs([]);
-      setPhase("success");
+      setPhase("ready");
       setMessage(LINK_COPY.success);
     } catch (error) {
       if (error instanceof IdentityRequestError && error.code === "conflict_unverified") {
@@ -158,7 +158,7 @@ export function ConnectedAccountsScreen(props: {
       for (const challenge of challenges) {
         const wallet = chosen.find((item) => item.address.toLowerCase() === challenge.address.toLowerCase());
         if (!wallet) continue;
-        const approved = await props.onApprove(`Link ${shortAddress(challenge.address)} to Discord`);
+        const approved = await props.onApprove(LINK_COPY.verifyNote);
         if (!approved) continue;
         try {
           const signature = await props.onSign(wallet.id, challenge.message);
@@ -193,7 +193,7 @@ export function ConnectedAccountsScreen(props: {
       setAccount(null);
       setConfirmDisconnect(false);
       setPhase("ready");
-      setMessage("Discord is disconnected.");
+      setMessage(LINK_COPY.disconnected);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not disconnect Discord.");
     } finally {
@@ -220,15 +220,26 @@ export function ConnectedAccountsScreen(props: {
   }
 
   const profile = account?.profile;
+  const many = props.wallets.length > 1;
+  const phoneHasUnlinked = props.wallets.some(
+    (wallet) => !linked.some((address) => address.toLowerCase() === wallet.address.toLowerCase()),
+  );
+
+  function openVerify() {
+    setSelected(initialSelection(props.wallets.map((wallet) => wallet.id), props.activeId));
+    setConfirmPrimary(null);
+    setMessage("");
+    setPhase("pick");
+  }
+
+  async function copyAddress(address: string) {
+    await Clipboard.setStringAsync(address);
+    setCopied(address);
+  }
+
   return (
     <View style={styles.wrap}>
-      <PageTitle title="Connected Accounts" subtitle="Discord confirms who you are. This phone proves the wallets." />
-      {phase === "success" ? (
-        <Card>
-          <Text style={styles.body}>{LINK_COPY.success}</Text>
-          <PrimaryButton label="Done" onPress={() => setPhase("ready")} />
-        </Card>
-      ) : null}
+      <PageTitle title={LINK_COPY.title} subtitle={LINK_COPY.subtitle} />
       {phase === "conflict" ? (
         <Card>
           <Text style={styles.body}>{message}</Text>
@@ -245,10 +256,18 @@ export function ConnectedAccountsScreen(props: {
       ) : null}
       {phase === "pick" ? (
         <Card>
-          <Text style={styles.title}>{LINK_COPY.confirmTitle}</Text>
-          <Text style={styles.body}>{LINK_COPY.confirmBody}</Text>
+          <Text style={styles.kicker}>{many ? LINK_COPY.walletsOnPhone : LINK_COPY.walletOnPhone}</Text>
+          <Text style={styles.title}>{many ? LINK_COPY.verifyTitlePlural : LINK_COPY.verifyTitle}</Text>
+          <Text style={styles.body}>{many ? LINK_COPY.verifyBodyPlural : LINK_COPY.verifyBody}</Text>
           {props.wallets.map((wallet) => {
             const on = selected.includes(wallet.id);
+            const body = (
+              <View style={styles.copy}>
+                <Text style={styles.row}>{many ? `${on ? "●" : "○"} ${wallet.name}` : wallet.name}</Text>
+                <Text style={styles.meta}>{shortAddress(wallet.address)}</Text>
+              </View>
+            );
+            if (!many) return <View key={wallet.id}>{body}</View>;
             return (
               <Pressable
                 key={wallet.id}
@@ -257,17 +276,41 @@ export function ConnectedAccountsScreen(props: {
                 }
                 style={styles.choice}
               >
-                <Text style={styles.row}>{on ? "●" : "○"} {wallet.name}</Text>
-                <Text style={styles.meta}>{`${getAddress(wallet.address)} · ${wallet.kind === "knoad" ? "KNOAD" : "Standard"}`}</Text>
+                {body}
               </Pressable>
             );
           })}
+          <Text style={styles.body}>{LINK_COPY.verifyNote}</Text>
           {selection.reason ? <Text style={styles.body}>{selection.reason}</Text> : null}
-          <Pressable onPress={() => setSafety((current) => !current)}>
-            <Text style={styles.link}>{LINK_COPY.safetyTitle}</Text>
-          </Pressable>
-          {safety ? <Text style={styles.body}>{LINK_COPY.safetyBody}</Text> : null}
-          <PrimaryButton label="Link these wallets" disabled={busy || !selection.canConfirm} onPress={() => void linkSelected()} />
+          <PrimaryButton
+            label={many ? LINK_COPY.linkMany : LINK_COPY.linkOne}
+            disabled={busy || !selection.canConfirm}
+            onPress={() => void linkSelected()}
+          />
+        </Card>
+      ) : null}
+      {phase === "manage" && profile ? (
+        <Card>
+          <Text style={styles.title}>{LINK_COPY.manage}</Text>
+          {(account?.addresses ?? []).map((row) => (
+            <View key={row.address} style={styles.addressRow}>
+              <View style={styles.copy}>
+                <Text style={styles.row}>{shortAddress(row.checksum)}</Text>
+                <Text style={styles.meta}>{row.role === "primary" ? LINK_COPY.main : LINK_COPY.alternative}</Text>
+              </View>
+              <Text onPress={() => void copyAddress(row.checksum)} style={styles.link}>
+                {copied === row.checksum ? LINK_COPY.copied : LINK_COPY.copy}
+              </Text>
+              {row.verifiedByApp || row.role === "secondary" ? (
+                <Text onPress={() => void remove(row.address, row.role === "primary")} style={styles.link}>
+                  {confirmPrimary === row.address ? LINK_COPY.confirmRemove : LINK_COPY.remove}
+                </Text>
+              ) : null}
+            </View>
+          ))}
+          {phoneHasUnlinked ? (
+            <OutlineButton label={many ? LINK_COPY.linkMany : LINK_COPY.linkOne} onPress={openVerify} />
+          ) : null}
         </Card>
       ) : null}
       {phase === "ready" && profile ? (
@@ -276,46 +319,46 @@ export function ConnectedAccountsScreen(props: {
             {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} /> : null}
             <View style={styles.copy}>
               <Text style={styles.title}>{profile.displayName}</Text>
-              <Text style={styles.meta}>Connected</Text>
+              <Text style={styles.meta}>{LINK_COPY.discordConnected}</Text>
             </View>
           </View>
-          {account?.addresses.map((row) => (
-            <View key={row.address} style={styles.addressRow}>
-              <View style={styles.copy}>
-                <Text style={styles.row}>{row.checksum}</Text>
-                <Text style={styles.meta}>{row.role === "primary" ? "Main" : "Alternative"}{row.verifiedByApp ? " · Verified on this phone" : ""}</Text>
-              </View>
-              {row.verifiedByApp || row.role === "secondary" ? (
-                <Text onPress={() => void remove(row.address, row.role === "primary")} style={styles.link}>
-                  {confirmPrimary === row.address ? "Confirm remove" : "Remove"}
-                </Text>
-              ) : null}
+          <Text style={styles.title}>{`${LINK_COPY.linkedWallets} ${account?.addresses.length ?? 0}`}</Text>
+          {(account?.addresses ?? []).map((row) => (
+            <View key={row.address} style={styles.copy}>
+              <Text style={styles.row}>{shortAddress(row.checksum)}</Text>
+              <Text style={styles.meta}>{row.role === "primary" ? LINK_COPY.main : LINK_COPY.alternative}</Text>
             </View>
           ))}
-          <OutlineButton
-            label="Manage Addresses"
-            onPress={() => {
-              setSelected(initialSelection(props.wallets.map((wallet) => wallet.id), props.activeId));
-              setPhase("pick");
-            }}
-          />
+          <Text style={styles.body}>{LINK_COPY.footnote}</Text>
+          <OutlineButton label={LINK_COPY.manage} onPress={() => setPhase("manage")} />
           {confirmDisconnect ? (
-            <PrimaryButton label="Disconnect Discord" disabled={busy} onPress={() => void disconnect()} />
+            <PrimaryButton label={LINK_COPY.disconnect} disabled={busy} onPress={() => void disconnect()} />
           ) : (
-            <OutlineButton label="Disconnect" tone="danger" onPress={() => setConfirmDisconnect(true)} />
+            <OutlineButton label={LINK_COPY.disconnect} tone="danger" onPress={() => setConfirmDisconnect(true)} />
           )}
-          {confirmDisconnect ? <Text style={styles.body}>{LINK_COPY.disconnect}</Text> : null}
+          {confirmDisconnect ? <Text style={styles.body}>{LINK_COPY.disconnectBody}</Text> : null}
         </Card>
       ) : null}
       {phase === "ready" && !profile ? (
         <Card>
-          <Text style={styles.title}>{LINK_COPY.connect}</Text>
           <Text style={styles.body}>{LINK_COPY.connectBody}</Text>
-          <PrimaryButton label={LINK_COPY.connect} disabled={busy} onPress={() => void connect()} />
+          <Text style={styles.body}>{LINK_COPY.reassurance}</Text>
+          <PrimaryButton label={LINK_COPY.continue} disabled={busy} onPress={() => void connect()} />
         </Card>
       ) : null}
-      {message && phase !== "conflict" && phase !== "success" ? <Text style={styles.body}>{message}</Text> : null}
-      <OutlineButton label="Back" onPress={props.onBack} />
+      {message && phase !== "conflict" ? <Text style={styles.body}>{message}</Text> : null}
+      <OutlineButton
+        label="Back"
+        onPress={() => {
+          if (profile && (phase === "pick" || phase === "manage")) {
+            setPhase("ready");
+            setConfirmPrimary(null);
+            setConfirmDisconnect(false);
+            return;
+          }
+          props.onBack();
+        }}
+      />
     </View>
   );
 }
@@ -329,6 +372,7 @@ const styles = StyleSheet.create({
   row: { color: theme.text, fontFamily: theme.font.medium, fontSize: theme.type.row },
   body: { color: theme.textMuted, fontFamily: theme.font.regular, fontSize: theme.type.body, lineHeight: 20 },
   meta: { color: theme.textDim, fontFamily: theme.font.regular, fontSize: theme.type.caption },
+  kicker: { color: theme.textDim, fontFamily: theme.font.semibold, fontSize: theme.type.caption, letterSpacing: 0.4 },
   link: { color: theme.mint, fontFamily: theme.font.semibold, fontSize: theme.type.row },
   choice: { gap: 2, paddingVertical: 4 },
   addressRow: { flexDirection: "row", alignItems: "center", gap: 10 },

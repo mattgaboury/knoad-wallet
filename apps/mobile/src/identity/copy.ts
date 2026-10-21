@@ -1,16 +1,38 @@
 export const LINK_COPY = {
-  connect: "Connect Discord",
-  connectBody:
-    "Link the wallets on this phone to your Discord profile. This does not send a transaction, and your keys stay on this phone.",
-  confirmTitle: "Link these wallets to your Discord profile?",
-  confirmBody: "Discord confirms who you are. This phone signs a message for each wallet. Nothing is spent or approved.",
-  safetyTitle: "How is this safe?",
-  safetyBody:
-    "Your wallet stays yours. Discord never receives your keys, and this link cannot move funds, approve tokens, or change recovery.",
+  settingsLead: "Link Discord and your wallets for eligible roles and access in servers using KNOAD.",
+  settingsConnect: "Connect",
+  settingsConnected: "Connected",
+  title: "KNOAD Account",
+  subtitle:
+    "Your KNOAD account helps participating Discord servers recognize eligible wallets for roles and access. Linking is not a guarantee of any particular role.",
+  connectBody: "Connect your Discord profile so KNOAD can recognize your wallets for eligible roles and access.",
+  reassurance: "Your private keys stay private. Connecting does not grant access to funds.",
+  continue: "Continue with Discord",
+  verifyTitle: "Link your wallet",
+  verifyTitlePlural: "Link your wallets",
+  verifyBody: "Verify the wallet on this phone to add it to your KNOAD account.",
+  verifyBodyPlural: "Verify the wallets on this phone to add them to your KNOAD account.",
+  verifyNote: "You’ll sign a verification message. No transaction, gas fee, or token approval.",
+  walletOnPhone: "Wallet on this phone",
+  walletsOnPhone: "Wallets on this phone",
+  linkOne: "Link wallet",
+  linkMany: "Link wallets",
+  discordConnected: "Discord connected",
+  linkedWallets: "Linked wallets",
+  footnote: "Used to check eligible roles and access in participating servers.",
+  manage: "Manage wallets",
+  main: "Main",
+  alternative: "Alternative",
+  copy: "Copy",
+  copied: "Copied.",
+  remove: "Remove",
+  confirmRemove: "Confirm remove",
+  disconnect: "Disconnect Discord",
+  disconnectBody: "Disconnect Discord? Addresses already saved stay on the profile until you remove one this app linked.",
   success: "These wallets are linked to your Discord profile.",
   full: "This profile can hold one main wallet and three more. Remove one before linking another.",
   notOnChain: "This address is not on that chain yet, so it stays unlinked.",
-  disconnect: "Disconnect Discord? Addresses already saved stay on the profile until you remove one this app linked.",
+  disconnected: "Discord is disconnected.",
 } as const;
 
 export const DISCORD_RETURN_URL = "https://knoad.io/wallet/discord";
@@ -20,6 +42,7 @@ export function staysUnlinked(message: string): boolean {
 }
 
 export function initialSelection(walletIds: string[], activeId: string | null): string[] {
+  if (walletIds.length === 1) return [walletIds[0]];
   return activeId && walletIds.includes(activeId) ? [activeId] : [];
 }
 

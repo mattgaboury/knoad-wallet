@@ -833,6 +833,7 @@ function WalletApp() {
         onSites={() => setRoute({ name: "tab", tab: "security" })}
         onLegal={() => setLegalReading(true)}
         linkEnabled={linkEnabled}
+        apiUrl={KNOAD_API_URL}
         onConnected={() => setRoute({ name: "connected" })}
         message={settingsNote}
       />
