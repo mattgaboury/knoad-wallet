@@ -9,7 +9,10 @@ import { readWalletNfts, type HeldNft } from "./src/nfts";
 import { spendingKeyLine } from "./src/spendingKey";
 import { bioFailureMessage, biometricPrompt, isBioCancel, readBioKey } from "./src/biometric";
 import { shortAddress } from "./src/format";
+import { createIdentityClient } from "./src/identity/client";
+import { identityCodeFromLink } from "./src/identity/link";
 import { pairingCodeFromLink } from "./src/pairingLink";
+import { KNOAD_API_URL } from "./src/config";
 import { loadSpot, type Spot } from "./src/prices";
 import { theme } from "./src/theme";
 import { useCommerce } from "./src/useCommerce";
@@ -31,7 +34,10 @@ import { Scanner } from "./src/screens/Scanner";
 import { SecurityScreen } from "./src/screens/SecurityScreen";
 import { SendScreen } from "./src/screens/SendScreen";
 import { AddWalletScreen, ImportWalletScreen } from "./src/screens/WalletSetupScreen";
+import { ConnectedAccountsScreen } from "./src/screens/ConnectedAccountsScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
+import { LegalAcceptScreen } from "./src/screens/LegalAcceptScreen";
+import { LEGAL_STORAGE_KEY, LEGAL_VERSION } from "./src/legal";
 import { TradeScreen } from "./src/screens/TradeScreen";
 import { UnlockScreen } from "./src/screens/UnlockScreen";
 
@@ -48,13 +54,15 @@ type Route =
   | { name: "browser" }
   | { name: "pair" }
   | { name: "addWallet" }
-  | { name: "importKey" };
+  | { name: "importKey" }
+  | { name: "connected" };
 
 type Gate =
   | { kind: "send"; to: string; amount: string; symbol: string; fiat: string | null; toName?: string }
   | { kind: "speed" | "cancel"; chainId: number; summary: string }
   | { kind: "trade"; summary: string }
-  | { kind: "nft"; nft: HeldNft; to: string };
+  | { kind: "nft"; nft: HeldNft; to: string }
+  | { kind: "link"; summary: string; resolve: (ok: boolean) => void };
 
 export function App() {
   return (
@@ -111,6 +119,10 @@ function WalletApp() {
   const [nftTick, setNftTick] = useState(0);
   const [spot, setSpot] = useState<Spot | null>(null);
   const [settingsNote, setSettingsNote] = useState("");
+  const [linkEnabled, setLinkEnabled] = useState(false);
+  const [discordReturn, setDiscordReturn] = useState<{ code: string; state: string } | null>(null);
+  const [legalAccepted, setLegalAccepted] = useState<boolean | null>(null);
+  const [legalReading, setLegalReading] = useState(false);
 
   const auth = ["create", "backup", "unlock", "recover"].includes(wallet.screen);
   const account = wallet.address ?? null;
@@ -132,6 +144,12 @@ function WalletApp() {
   const alert = pendings.length > 0 || ready || Boolean(wallet.prompt);
 
   useEffect(() => {
+    void AsyncStorage.getItem(LEGAL_STORAGE_KEY).then((value) => {
+      setLegalAccepted(value === LEGAL_VERSION);
+    });
+  }, []);
+
+  useEffect(() => {
     if (pendingCode.current) return;
     if (wallet.screen === "home") setRoute((current) => (current.name === "tab" ? current : { name: "tab", tab: "wallet" }));
   }, [wallet.screen]);
@@ -145,8 +163,35 @@ function WalletApp() {
   }, [wallet.screen, account]);
 
   useEffect(() => {
+    if (!KNOAD_API_URL) return;
+    const client = createIdentityClient(KNOAD_API_URL);
+    let live = true;
+    void client
+      .status()
+      .then((status) => {
+        if (live) setLinkEnabled(status.enabled);
+      })
+      .catch(() => {
+        if (live) setLinkEnabled(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
     let live = true;
     function accept(url: string | null) {
+      if (url) {
+        const identity = identityCodeFromLink(url);
+        if (identity) {
+          if (seenLink.current === `discord:${identity.state}`) return;
+          seenLink.current = `discord:${identity.state}`;
+          setDiscordReturn(identity);
+          setRoute({ name: "connected" });
+          return;
+        }
+      }
       const code = url ? pairingCodeFromLink(url) : null;
       if (!code || seenLink.current === code) return;
       seenLink.current = code;
@@ -222,6 +267,11 @@ function WalletApp() {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (legalReading) {
+        setLegalReading(false);
+        return true;
+      }
+      if (legalAccepted === false) return true;
       if (walletsOpen) {
         setWalletsOpen(false);
         return true;
@@ -255,6 +305,10 @@ function WalletApp() {
         setTabSheet(false);
         return true;
       }
+      if (route.name === "connected") {
+        setRoute({ name: "tab", tab: "settings" });
+        return true;
+      }
       if (route.name === "browser") {
         if (activeTab && browserRefs.current[activeTab]?.goBack()) return true;
         setRoute({ name: "tab", tab: "browser" });
@@ -271,7 +325,7 @@ function WalletApp() {
       return false;
     });
     return () => sub.remove();
-  }, [scan, bell, gate, route, wallet.screen, wallet.prompt, wallet.hasVault, tabSheet, activeTab, walletsOpen]);
+  }, [scan, bell, gate, route, wallet.screen, wallet.prompt, wallet.hasVault, tabSheet, activeTab, walletsOpen, legalAccepted, legalReading]);
 
   useEffect(() => {
     let live = true;
@@ -310,7 +364,7 @@ function WalletApp() {
     if (route.name === "browser" && tabsReady && tabs.length === 0) setRoute({ name: "tab", tab: "browser" });
   }, [route.name, tabsReady, tabs.length]);
 
-  if (!fontsLoaded || !wallet.booted) return <View style={styles.boot} />;
+  if (!fontsLoaded || !wallet.booted || legalAccepted === null) return <View style={styles.boot} />;
 
   function openSite(url: string) {
     tabsTouched.current = true;
@@ -360,7 +414,7 @@ function WalletApp() {
   }
 
   const tab: TabId = route.name === "tab" ? route.tab : route.name === "browser" ? "browser" : "wallet";
-  const showBar = !auth && !gate && !wallet.prompt && route.name !== "browser" && route.name !== "receive" && route.name !== "asset" && route.name !== "nft" && route.name !== "swap" && route.name !== "pair" && route.name !== "addWallet" && route.name !== "importKey";
+  const showBar = !auth && !gate && !wallet.prompt && route.name !== "browser" && route.name !== "receive" && route.name !== "asset" && route.name !== "nft" && route.name !== "swap" && route.name !== "pair" && route.name !== "addWallet" && route.name !== "importKey" && route.name !== "connected";
   const showHeader = !auth && route.name !== "browser" && (route.name === "tab" || Boolean(gate) || Boolean(wallet.prompt));
   const chainView = wallet.chainReport.find((view) => view.chainId === wallet.chainId);
   const selectedKeyLine = wallet.walletKind === "standard"
@@ -381,6 +435,11 @@ function WalletApp() {
       return;
     }
     if (!gate) return;
+    if (gate.kind === "link") {
+      gate.resolve(true);
+      setGate(null);
+      return;
+    }
     if (gate.kind === "send") {
       await wallet.send({ to: gate.to, amount: gate.amount, symbol: gate.symbol, toName: gate.toName });
       setRoute({ name: "tab", tab: "activity" });
@@ -460,6 +519,8 @@ function WalletApp() {
             network: getChain(gate.nft.chainId)?.name,
             action: `Send ${gate.nft.collection} #${gate.nft.tokenId}`,
           }
+        : gate?.kind === "link"
+          ? { action: gate.summary, chainId: wallet.chainId, network: wallet.chain.name }
         : gate
         ? {
             chainId: gate.kind === "trade" ? wallet.chainId : gate.chainId,
@@ -479,7 +540,10 @@ function WalletApp() {
       onReject={() => {
         setGateError("");
         if (wallet.prompt) wallet.answer(false);
-        else setGate(null);
+        else if (gate?.kind === "link") {
+          gate.resolve(false);
+          setGate(null);
+        } else setGate(null);
       }}
     />
   );
@@ -540,7 +604,7 @@ function WalletApp() {
         onBack={() => wallet.leaveWords(account ? "home" : "create")}
       />
     );
-  } else if ((gate || wallet.prompt) && route.name !== "browser") {
+  } else if ((gate || wallet.prompt) && route.name !== "browser" && gate?.kind !== "link") {
     body = approval;
   } else if (route.name === "send" && account) {
     body = (
@@ -767,7 +831,27 @@ function WalletApp() {
         }}
         onPair={() => setRoute({ name: "pair" })}
         onSites={() => setRoute({ name: "tab", tab: "security" })}
+        onLegal={() => setLegalReading(true)}
+        linkEnabled={linkEnabled}
+        onConnected={() => setRoute({ name: "connected" })}
         message={settingsNote}
+      />
+    );
+  } else if (route.name === "connected") {
+    body = (
+      <ConnectedAccountsScreen
+        apiUrl={KNOAD_API_URL}
+        wallets={wallet.wallets}
+        activeId={wallet.wallets.find((item) => item.address.toLowerCase() === (account ?? "").toLowerCase())?.id ?? wallet.wallets[0]?.id ?? null}
+        handoff={discordReturn}
+        onHandoffConsumed={() => setDiscordReturn(null)}
+        onApprove={(summary) =>
+          new Promise((resolve) => {
+            setGate({ kind: "link", summary, resolve });
+          })
+        }
+        onSign={(walletId, message) => wallet.signLinkMessage(walletId, message)}
+        onBack={() => setRoute({ name: "tab", tab: "settings" })}
       />
     );
   } else if (route.name === "addWallet") {
@@ -831,6 +915,8 @@ function WalletApp() {
     );
   }
 
+  const legalOpen = legalAccepted === false || legalReading;
+
   return (
     <View style={styles.boot}>
       <Screen
@@ -882,6 +968,18 @@ function WalletApp() {
           }}
         />
       ) : null}
+      <Modal
+        visible={gate?.kind === "link"}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (gate?.kind !== "link") return;
+          gate.resolve(false);
+          setGate(null);
+        }}
+      >
+        <View style={styles.boot}>{approval}</View>
+      </Modal>
       <Modal visible={walletsOpen} transparent animationType="fade" onRequestClose={() => setWalletsOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setWalletsOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => undefined}>
@@ -940,6 +1038,20 @@ function WalletApp() {
           </View>
         </Pressable>
       </Modal>
+      {legalOpen ? (
+        <View style={styles.legalOverlay}>
+          <LegalAcceptScreen
+            mode={legalAccepted ? "read" : "accept"}
+            onAccept={() => {
+              void AsyncStorage.setItem(LEGAL_STORAGE_KEY, LEGAL_VERSION).then(() => {
+                setLegalAccepted(true);
+                setLegalReading(false);
+              });
+            }}
+            onClose={() => setLegalReading(false)}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -983,6 +1095,15 @@ const styles = StyleSheet.create({
   browserWrap: { flex: 1, position: "relative", backgroundColor: theme.bg },
   browserPane: { flex: 1 },
   browserHidden: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, opacity: 0 },
+  legalOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: theme.bg,
+    zIndex: 30,
+  },
   approveOverlay: {
     position: "absolute",
     top: 0,

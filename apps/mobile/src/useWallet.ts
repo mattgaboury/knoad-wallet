@@ -2155,6 +2155,16 @@ export function useWallet() {
     bindWalletConnect(null);
   }
 
+  async function signLinkMessage(walletId: string, message: string): Promise<Hex> {
+    const file = fileRef.current;
+    if (!file) throw new Error("Unlock this phone first.");
+    const wallet = file.wallets.find((item) => item.id === walletId);
+    if (!wallet) throw new Error("That wallet is not on this phone.");
+    if (wallet.kind === "standard") return privateKeyToAccount(wallet.privateKey).signMessage({ message });
+    const source = knoadRecord(wallet, file.selectedChainId);
+    return signConnectedMessage(source, message, chainTheRequestNames(messageChainId(message), file.selectedChainId));
+  }
+
   const address = record?.account ?? standard?.address ?? null;
   const main = vaultFile?.wallets.find((wallet) => wallet.kind === "knoad" && wallet.accountIndex === 0);
   const mainAddress = main?.kind === "knoad" ? main.account : address ?? "";
@@ -2173,6 +2183,7 @@ export function useWallet() {
       address: walletAddress(wallet),
     })),
     selectWallet,
+    signLinkMessage,
     addKnoadWallet,
     importStandardWallet,
     screen,

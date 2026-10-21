@@ -10,6 +10,7 @@
     "ios": {
       "bundleIdentifier": "io.knoad.wallet",
       "supportsTablet": false,
+      "associatedDomains": ["applinks:knoad.io", "applinks:www.knoad.io"],
       "infoPlist": {
         "NSCameraUsageDescription": "KNOAD Wallet scans a connection code or an address.",
         "NSFaceIDUsageDescription": "KNOAD Wallet uses Face ID to unlock and approve on this phone."
@@ -17,6 +18,17 @@
     },
     "android": {
       "package": "io.knoad.wallet",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "knoad.io", "pathPrefix": "/wallet/discord" },
+            { "scheme": "https", "host": "www.knoad.io", "pathPrefix": "/wallet/discord" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#050907"

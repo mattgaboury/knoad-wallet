@@ -10,6 +10,9 @@ export const COMMERCE_SUBMIT_ENABLED = process.env.EXPO_PUBLIC_COMMERCE_SUBMIT =
 
 export const QUOTE_URL = (process.env.EXPO_PUBLIC_KNOAD_QUOTE_URL ?? "").replace(/\/$/, "");
 
+/** knoad.io API. Empty hides Discord linking. */
+export const KNOAD_API_URL = (process.env.EXPO_PUBLIC_KNOAD_API_URL ?? "").replace(/\/$/, "");
+
 /** CoinGecko Demo key. Prices still load when this is empty and the public feed answers. */
 export const COINGECKO_API_KEY = (process.env.EXPO_PUBLIC_COINGECKO_API_KEY ?? "").trim();
 

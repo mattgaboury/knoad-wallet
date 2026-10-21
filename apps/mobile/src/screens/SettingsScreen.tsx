@@ -16,6 +16,9 @@ export function SettingsScreen(props: {
   onPassword: (next: string) => Promise<void>;
   onPair: () => void;
   onSites: () => void;
+  onLegal: () => void;
+  linkEnabled?: boolean;
+  onConnected?: () => void;
   message: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -104,6 +107,12 @@ export function SettingsScreen(props: {
           <Toggle on={props.auto} onChange={props.onAuto} label="Pending sends" />
         </View>
       </Section>
+      {props.linkEnabled && props.onConnected ? (
+        <Section title="Connected Accounts">
+          <Text style={styles.hint}>Link the wallets on this phone to Discord. No transaction, and your keys stay here.</Text>
+          <Row label="Discord" onPress={props.onConnected} />
+        </Section>
+      ) : null}
       <Section title="Connections">
         <Row label="Connect a site" onPress={props.onPair} />
         <Row label="Connected sites" onPress={props.onSites} />
@@ -111,6 +120,7 @@ export function SettingsScreen(props: {
       <Section title="About">
         <Text style={styles.meta}>{`Version ${version}`}</Text>
         <Row label="knoad.io" onPress={() => void Linking.openURL("https://knoad.io")} />
+        <Row label="Terms and privacy" onPress={props.onLegal} />
       </Section>
       {props.message ? <Text style={styles.message}>{props.message}</Text> : null}
     </View>

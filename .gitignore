@@ -9,3 +9,8 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Notes and plans stay on this machine.
+*.md
+*.plan.md
+.cursor/

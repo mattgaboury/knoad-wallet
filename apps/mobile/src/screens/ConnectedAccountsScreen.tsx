@@ -1,0 +1,321 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { getAddress } from "viem";
+import { DEFAULT_CHAIN_ID } from "../config";
+import { shortAddress } from "../format";
+import { createIdentityClient, IdentityRequestError, type WalletAppAccount } from "../identity/client";
+import {
+  DISCORD_RETURN_URL,
+  initialSelection,
+  linkSelection,
+  LINK_COPY,
+  staysUnlinked,
+} from "../identity/copy";
+import { clearLinkSession, readLinkSession, saveLinkSession } from "../identity/session";
+import { theme } from "../theme";
+import { Card, OutlineButton, PageTitle, PrimaryButton } from "../ui/chrome";
+
+const ERC6492_MARK = "6492649264926492649264926492649264926492649264926492649264926492";
+
+type WalletRow = { id: string; name: string; address: string; kind: "knoad" | "standard" };
+
+export function ConnectedAccountsScreen(props: {
+  apiUrl: string;
+  wallets: WalletRow[];
+  activeId: string | null;
+  handoff: { code: string; state: string } | null;
+  onHandoffConsumed: () => void;
+  onApprove: (summary: string) => Promise<boolean>;
+  onSign: (walletId: string, message: string) => Promise<string>;
+  onBack: () => void;
+}) {
+  const client = useMemo(() => createIdentityClient(props.apiUrl), [props.apiUrl]);
+  const [token, setToken] = useState<string | null>(null);
+  const [account, setAccount] = useState<WalletAppAccount | null>(null);
+  const [phase, setPhase] = useState<"ready" | "pick" | "success" | "conflict">("ready");
+  const [selected, setSelected] = useState<string[]>(() => initialSelection(props.wallets.map((wallet) => wallet.id), props.activeId));
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [safety, setSafety] = useState(false);
+  const [heldProofs, setHeldProofs] = useState<{ address: string; signature: string }[]>([]);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [confirmPrimary, setConfirmPrimary] = useState<string | null>(null);
+  const seenHandoff = useRef<string | null>(null);
+
+  async function load(nextToken: string) {
+    const next = await client.account(nextToken);
+    setAccount(next);
+    return next;
+  }
+
+  useEffect(() => {
+    let live = true;
+    void readLinkSession().then(async (session) => {
+      if (!live || !session) return;
+      setToken(session.token);
+      try {
+        const next = await client.account(session.token);
+        if (live) setAccount(next);
+      } catch (error) {
+        if (live) setMessage(error instanceof Error ? error.message : "Could not load Discord.");
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [client]);
+
+  useEffect(() => {
+    if (!props.handoff) return;
+    const key = `${props.handoff.state}:${props.handoff.code}`;
+    if (seenHandoff.current === key) return;
+    seenHandoff.current = key;
+    const { code, state } = props.handoff;
+    props.onHandoffConsumed();
+    setBusy(true);
+    setMessage("");
+    void client
+      .exchange(code, state)
+      .then(async (exchanged) => {
+        await saveLinkSession({ token: exchanged.token, expiresAt: exchanged.expiresAt });
+        setToken(exchanged.token);
+        await load(exchanged.token);
+        setSelected(initialSelection(props.wallets.map((wallet) => wallet.id), props.activeId));
+        setPhase("pick");
+      })
+      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Discord did not connect."))
+      .finally(() => setBusy(false));
+  }, [client, props]);
+
+  const linked = (account?.addresses ?? []).map((row) => row.address);
+  const selection = linkSelection({
+    selectedIds: selected,
+    wallets: props.wallets,
+    linked,
+    remaining: account?.remaining ?? 4,
+  });
+
+  async function connect() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const started = await client.start(DISCORD_RETURN_URL);
+      await Linking.openURL(started.authorizeUrl);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not open Discord.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submit(proofs: { address: string; signature: string }[], confirmUnverified: boolean) {
+    if (!token) return;
+    try {
+      await client.confirm(token, proofs, confirmUnverified);
+      await load(token);
+      setHeldProofs([]);
+      setPhase("success");
+      setMessage(LINK_COPY.success);
+    } catch (error) {
+      if (error instanceof IdentityRequestError && error.code === "conflict_unverified") {
+        setHeldProofs(proofs);
+        setPhase("conflict");
+        setMessage(error.message);
+        return;
+      }
+      const text = error instanceof Error ? error.message : "Could not link these wallets.";
+      setMessage(staysUnlinked(text) ? LINK_COPY.notOnChain : text);
+    }
+  }
+
+  async function linkSelected() {
+    if (!token || !selection.canConfirm) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const chosen = props.wallets.filter((wallet) => selected.includes(wallet.id));
+      const challenges = await client.challenge(
+        token,
+        chosen.map((wallet) => wallet.address),
+        DEFAULT_CHAIN_ID,
+      );
+      const proofs: { address: string; signature: string }[] = [];
+      const skipped: string[] = [];
+      for (const challenge of challenges) {
+        const wallet = chosen.find((item) => item.address.toLowerCase() === challenge.address.toLowerCase());
+        if (!wallet) continue;
+        const approved = await props.onApprove(`Link ${shortAddress(challenge.address)} to Discord`);
+        if (!approved) continue;
+        try {
+          const signature = await props.onSign(wallet.id, challenge.message);
+          if (signature.toLowerCase().endsWith(ERC6492_MARK)) {
+            skipped.push(shortAddress(challenge.address));
+            continue;
+          }
+          proofs.push({ address: challenge.address, signature });
+        } catch (error) {
+          const text = error instanceof Error ? error.message : "";
+          if (staysUnlinked(text)) skipped.push(shortAddress(challenge.address));
+          else throw error;
+        }
+      }
+      if (skipped.length > 0) setMessage(`${skipped.join(", ")}. ${LINK_COPY.notOnChain}`);
+      if (proofs.length === 0) return;
+      await submit(proofs, false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not link these wallets.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    if (!token) return;
+    setBusy(true);
+    try {
+      await client.disconnect(token);
+      await clearLinkSession();
+      setToken(null);
+      setAccount(null);
+      setConfirmDisconnect(false);
+      setPhase("ready");
+      setMessage("Discord is disconnected.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not disconnect Discord.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(address: string, primary: boolean) {
+    if (!token) return;
+    if (primary && confirmPrimary !== address) {
+      setConfirmPrimary(address);
+      return;
+    }
+    setBusy(true);
+    try {
+      await client.unlink(token, address, primary);
+      setConfirmPrimary(null);
+      await load(token);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not remove that wallet.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const profile = account?.profile;
+  return (
+    <View style={styles.wrap}>
+      <PageTitle title="Connected Accounts" subtitle="Discord confirms who you are. This phone proves the wallets." />
+      {phase === "success" ? (
+        <Card>
+          <Text style={styles.body}>{LINK_COPY.success}</Text>
+          <PrimaryButton label="Done" onPress={() => setPhase("ready")} />
+        </Card>
+      ) : null}
+      {phase === "conflict" ? (
+        <Card>
+          <Text style={styles.body}>{message}</Text>
+          <PrimaryButton
+            label="Move the unverified wallet"
+            disabled={busy}
+            onPress={() => {
+              setBusy(true);
+              void submit(heldProofs, true).finally(() => setBusy(false));
+            }}
+          />
+          <OutlineButton label="Leave it" onPress={() => setPhase("pick")} />
+        </Card>
+      ) : null}
+      {phase === "pick" ? (
+        <Card>
+          <Text style={styles.title}>{LINK_COPY.confirmTitle}</Text>
+          <Text style={styles.body}>{LINK_COPY.confirmBody}</Text>
+          {props.wallets.map((wallet) => {
+            const on = selected.includes(wallet.id);
+            return (
+              <Pressable
+                key={wallet.id}
+                onPress={() =>
+                  setSelected((current) => (current.includes(wallet.id) ? current.filter((id) => id !== wallet.id) : [...current, wallet.id]))
+                }
+                style={styles.choice}
+              >
+                <Text style={styles.row}>{on ? "●" : "○"} {wallet.name}</Text>
+                <Text style={styles.meta}>{`${getAddress(wallet.address)} · ${wallet.kind === "knoad" ? "KNOAD" : "Standard"}`}</Text>
+              </Pressable>
+            );
+          })}
+          {selection.reason ? <Text style={styles.body}>{selection.reason}</Text> : null}
+          <Pressable onPress={() => setSafety((current) => !current)}>
+            <Text style={styles.link}>{LINK_COPY.safetyTitle}</Text>
+          </Pressable>
+          {safety ? <Text style={styles.body}>{LINK_COPY.safetyBody}</Text> : null}
+          <PrimaryButton label="Link these wallets" disabled={busy || !selection.canConfirm} onPress={() => void linkSelected()} />
+        </Card>
+      ) : null}
+      {phase === "ready" && profile ? (
+        <Card>
+          <View style={styles.identity}>
+            {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} /> : null}
+            <View style={styles.copy}>
+              <Text style={styles.title}>{profile.displayName}</Text>
+              <Text style={styles.meta}>Connected</Text>
+            </View>
+          </View>
+          {account?.addresses.map((row) => (
+            <View key={row.address} style={styles.addressRow}>
+              <View style={styles.copy}>
+                <Text style={styles.row}>{row.checksum}</Text>
+                <Text style={styles.meta}>{row.role === "primary" ? "Main" : "Alternative"}{row.verifiedByApp ? " · Verified on this phone" : ""}</Text>
+              </View>
+              {row.verifiedByApp || row.role === "secondary" ? (
+                <Text onPress={() => void remove(row.address, row.role === "primary")} style={styles.link}>
+                  {confirmPrimary === row.address ? "Confirm remove" : "Remove"}
+                </Text>
+              ) : null}
+            </View>
+          ))}
+          <OutlineButton
+            label="Manage Addresses"
+            onPress={() => {
+              setSelected(initialSelection(props.wallets.map((wallet) => wallet.id), props.activeId));
+              setPhase("pick");
+            }}
+          />
+          {confirmDisconnect ? (
+            <PrimaryButton label="Disconnect Discord" disabled={busy} onPress={() => void disconnect()} />
+          ) : (
+            <OutlineButton label="Disconnect" tone="danger" onPress={() => setConfirmDisconnect(true)} />
+          )}
+          {confirmDisconnect ? <Text style={styles.body}>{LINK_COPY.disconnect}</Text> : null}
+        </Card>
+      ) : null}
+      {phase === "ready" && !profile ? (
+        <Card>
+          <Text style={styles.title}>{LINK_COPY.connect}</Text>
+          <Text style={styles.body}>{LINK_COPY.connectBody}</Text>
+          <PrimaryButton label={LINK_COPY.connect} disabled={busy} onPress={() => void connect()} />
+        </Card>
+      ) : null}
+      {message && phase !== "conflict" && phase !== "success" ? <Text style={styles.body}>{message}</Text> : null}
+      <OutlineButton label="Back" onPress={props.onBack} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: { gap: 12 },
+  identity: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.inset },
+  copy: { flex: 1, gap: 2 },
+  title: { color: theme.text, fontFamily: theme.font.semibold, fontSize: theme.type.card },
+  row: { color: theme.text, fontFamily: theme.font.medium, fontSize: theme.type.row },
+  body: { color: theme.textMuted, fontFamily: theme.font.regular, fontSize: theme.type.body, lineHeight: 20 },
+  meta: { color: theme.textDim, fontFamily: theme.font.regular, fontSize: theme.type.caption },
+  link: { color: theme.mint, fontFamily: theme.font.semibold, fontSize: theme.type.row },
+  choice: { gap: 2, paddingVertical: 4 },
+  addressRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+});
