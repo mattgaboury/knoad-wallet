@@ -8,12 +8,16 @@ export type ActivityStatus = "pending" | "included" | "failed" | "cancelled" | "
 export type ActivityEntry = {
   id: string;
   chainId: number;
-  kind: "send" | "cancel" | "speed" | "swap" | "bridge" | "site" | "nft";
+  kind: "send" | "cancel" | "speed" | "swap" | "bridge" | "site" | "nft" | "offer";
   hash: string;
   amount?: string;
   asset?: string;
   to?: string;
   toName?: string;
+  /** EIP-712 digest Seaport checks for this offer, so it can be cancelled later. */
+  digest?: string;
+  /** Unix seconds when a standing offer ends. */
+  expiry?: number;
   time: number;
   status: ActivityStatus;
   reason?: string;
@@ -61,6 +65,15 @@ export async function appendActivity(entry: ActivityEntry): Promise<void> {
 
 export async function markActivity(hash: string, status: ActivityStatus): Promise<void> {
   await patchActivity(hash, { status });
+}
+
+export async function markOffersCancelled(digest: string): Promise<void> {
+  const current = await loadActivity();
+  await write(
+    current.map((item) =>
+      item.kind === "offer" && item.digest === digest && item.to !== "revoke" ? { ...item, status: "cancelled" } : item,
+    ),
+  );
 }
 
 export async function patchActivity(hash: string, patch: Partial<Pick<ActivityEntry, "status" | "reason" | "txHash" | "nonce">>): Promise<void> {

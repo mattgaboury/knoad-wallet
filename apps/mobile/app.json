@@ -6,6 +6,13 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "backgroundColor": "#050907",
+    "primaryColor": "#2EE6AF",
+    "androidStatusBar": {
+      "backgroundColor": "#050907",
+      "barStyle": "light-content",
+      "translucent": false
+    },
     "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "io.knoad.wallet",

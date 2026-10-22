@@ -80,7 +80,7 @@ contract PayableReceiver {
     receive() external payable {}
 }
 
-contract KnoadTest is Test {
+abstract contract KnoadHarness is Test {
     uint256 internal constant SECP_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
     uint256 internal constant P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551;
     bytes4 internal constant ERC1271_MAGIC = 0x1626ba7e;
@@ -99,7 +99,7 @@ contract KnoadTest is Test {
     bytes32 internal mode;
     bytes internal nextRevert;
 
-    function setUp() public {
+    function setUp() public virtual {
         P256Shim shim = new P256Shim();
         vm.etch(address(0x100), address(shim).code);
 
@@ -126,6 +126,311 @@ contract KnoadTest is Test {
         assertEq(address(account.entryPoint()), 0x433709009B8330FDa32311DF1C2AFA402eD8D009);
     }
 
+    function _minimumPaymentGas(address receiver) internal returns (uint256 minimum) {
+        uint256 low = 20_000;
+        uint256 high = 400_000;
+        while (low < high) {
+            uint256 mid = (low + high) / 2;
+            if (_paymentLands(receiver, mid)) high = mid;
+            else low = mid + 1;
+        }
+        return low;
+    }
+
+    function _paymentLands(address receiver, uint256 callGas) internal returns (bool landed) {
+        uint256 snap = vm.snapshotState();
+        bytes memory callData = _rotateCallData(_batch(receiver, 0.0001 ether, ""), 0x111, 1);
+        PackedUserOperation memory op = _op(callData, hotKey, hotType, 0);
+        op.accountGasLimits = bytes32(abi.encodePacked(uint128(1_000_000), uint128(callGas)));
+        op.signature = _sign(hotKey, hotType, entryPoint.getUserOpHash(op));
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = op;
+        vm.prank(bundler, bundler);
+        try entryPoint.handleOps(ops, bundler) {
+            landed = receiver.balance == 0.0001 ether;
+        } catch {
+            landed = false;
+        }
+        vm.revertToState(snap);
+    }
+
+    function _directPaymentGas(address receiver) internal returns (uint256 used) {
+        uint256 snap = vm.snapshotState();
+        vm.deal(address(this), 1 ether);
+        uint256 before = gasleft();
+        (bool ok,) = receiver.call{value: 0.0001 ether}("");
+        used = before - gasleft();
+        assertTrue(ok);
+        vm.revertToState(snap);
+    }
+
+    function _etchCurrentOp(bytes32 hash) internal returns (bytes memory original) {
+        original = address(entryPoint).code;
+        vm.etch(address(entryPoint), address(new CurrentOpHash(hash)).code);
+    }
+
+    function _restoreEntryPoint(bytes memory original) internal {
+        vm.etch(address(entryPoint), original);
+    }
+
+    function _rotate(bytes memory executionData, uint256 nextKey, uint8 nextType) internal {
+        _submit(_rotateCallData(executionData, nextKey, nextType), hotKey, hotType);
+        hotKey = nextKey;
+        hotType = nextType;
+    }
+
+    function _rotateCallData(bytes memory executionData, uint256 nextKey, uint8 nextType) internal returns (bytes memory) {
+        return abi.encodeCall(KnoadAccount.executeAndRotate, (mode, executionData, _keyAddress(nextKey, nextType), nextType));
+    }
+
+    function _submit(bytes memory callData, uint256 key, uint8 keyType) internal {
+        _submitAtNonce(callData, key, keyType, entryPoint.getNonce(address(account), 0));
+    }
+
+    function _submitAtNonce(bytes memory callData, uint256 key, uint8 keyType, uint256 nonce) internal {
+        PackedUserOperation memory op;
+        op.sender = address(account);
+        op.nonce = nonce;
+        op.callData = callData;
+        uint128 verifyGas = keyType == KnoadLib.KEY_P256 || hotType == KnoadLib.KEY_P256 ? uint128(8_000_000) : uint128(1_000_000);
+        op.accountGasLimits = bytes32(abi.encodePacked(verifyGas, uint128(1_000_000)));
+        op.preVerificationGas = 100_000;
+        op.gasFees = bytes32(abi.encodePacked(uint128(1 gwei), uint128(2 gwei)));
+        op.signature = _sign(key, keyType, entryPoint.getUserOpHash(op));
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = op;
+        if (nextRevert.length > 0) {
+            bytes memory expected = nextRevert;
+            nextRevert = "";
+            vm.expectRevert(expected);
+        }
+        vm.prank(bundler, bundler);
+        entryPoint.handleOps(ops, bundler);
+    }
+
+    function _sign(uint256 key, uint8 keyType, bytes32 digest) internal returns (bytes memory) {
+        if (keyType == KnoadLib.KEY_SECP256K1) return _signSecp(key, digest);
+        return _signP256(key, digest);
+    }
+
+    function _signSecp(uint256 key, bytes32 digest) internal returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signP256(uint256 key, bytes32 digest) internal returns (bytes memory) {
+        (bytes32 r, bytes32 s) = vm.signP256(key, digest);
+        uint256 ss = uint256(s);
+        if (ss > P256_N / 2) ss = P256_N - ss;
+        (uint256 qx, uint256 qy) = vm.publicKeyP256(key);
+        return abi.encodePacked(r, bytes32(ss), bytes32(qx), bytes32(qy));
+    }
+
+    function _batch(address target, uint256 value, bytes memory data) internal pure returns (bytes memory) {
+        Execution[] memory calls = new Execution[](1);
+        calls[0] = Execution({target: target, value: value, callData: data});
+        return abi.encode(calls);
+    }
+
+    function _retarget(bytes memory code, address from, address to) internal pure returns (bytes memory) {
+        bytes20 current = bytes20(from);
+        bytes20 next = bytes20(to);
+        for (uint256 i = 0; i + 20 <= code.length; i++) {
+            bool found = true;
+            for (uint256 j = 0; j < 20; j++) {
+                if (code[i + j] != current[j]) {
+                    found = false;
+                    break;
+                }
+            }
+            if (found) {
+                for (uint256 j = 0; j < 20; j++) code[i + j] = next[j];
+            }
+        }
+        return code;
+    }
+
+    function _activation(address signer, bytes memory signature)
+        internal
+        pure
+        returns (KnoadFactory.Activation memory)
+    {
+        return KnoadFactory.Activation({initialSigner: signer, keyType: 1, signature: signature});
+    }
+
+    function _activationInit(uint256 recoveryKey_, address recovery, address hot, uint256 index)
+        internal
+        returns (bytes memory)
+    {
+        address predicted = factory.predict(recovery, index);
+        bytes32 digest = factory.activationDigest(predicted, hot, 1);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(recoveryKey_, digest);
+        return abi.encodePacked(
+            address(factory),
+            abi.encodeCall(
+                KnoadFactory.createAccount,
+                (recovery, index, KnoadFactory.Activation({initialSigner: hot, keyType: 1, signature: abi.encodePacked(r, s, v)}))
+            )
+        );
+    }
+
+    function _op(bytes memory callData, uint256 key, uint8 keyType, uint256 nonce)
+        internal
+        returns (PackedUserOperation memory)
+    {
+        return _opFor(address(account), callData, key, keyType, nonce);
+    }
+
+    function _opFor(address sender, bytes memory callData, uint256 key, uint8 keyType, uint256 nonce)
+        internal
+        returns (PackedUserOperation memory op)
+    {
+        op.sender = sender;
+        op.nonce = nonce;
+        op.callData = callData;
+        uint128 verifyGas = keyType == KnoadLib.KEY_P256 ? uint128(8_000_000) : uint128(1_000_000);
+        op.accountGasLimits = bytes32(abi.encodePacked(verifyGas, uint128(1_000_000)));
+        op.preVerificationGas = 100_000;
+        op.gasFees = bytes32(abi.encodePacked(uint128(1 gwei), uint128(2 gwei)));
+        op.signature = _sign(key, keyType, entryPoint.getUserOpHash(op));
+    }
+
+    function _mode() internal pure returns (bytes32) {
+        return Mode.unwrap(
+            ERC7579Utils.encodeMode(
+                ERC7579Utils.CALLTYPE_BATCH, ERC7579Utils.EXECTYPE_DEFAULT, ModeSelector.wrap(0), ModePayload.wrap(0)
+            )
+        );
+    }
+
+    function _keyAddress(uint256 key, uint8 keyType) internal returns (address) {
+        if (keyType == KnoadLib.KEY_P256) return _p256Address(key);
+        return vm.addr(key);
+    }
+
+    function _p256Address(uint256 key) internal returns (address) {
+        (uint256 qx, uint256 qy) = vm.publicKeyP256(key);
+        return KnoadLib.p256Signer(bytes32(qx), bytes32(qy));
+    }
+
+    function _recover(uint256 newHot, uint8 newType, address nextRecovery) internal {
+        (KnoadAccount.RecoveryRequest memory request, bytes memory sig) =
+            _signedRecovery(_keyAddress(newHot, newType), newType, nextRecovery);
+        account.recover(request, sig);
+        if (account.recoveryDelay() == 0) {
+            hotKey = newHot;
+            hotType = newType;
+        }
+    }
+
+    function _request(address newHot, uint8 newType, address nextRecovery)
+        internal
+        view
+        returns (KnoadAccount.RecoveryRequest memory)
+    {
+        return KnoadAccount.RecoveryRequest({
+            account: address(account),
+            chainId: block.chainid,
+            newHotSigner: newHot,
+            newHotKeyType: newType,
+            nextRecoveryAuthority: nextRecovery,
+            recoveryEpoch: account.recoveryEpoch(),
+            authorityNonce: account.authorityNonce(),
+            deadline: uint64(block.timestamp + 1 days)
+        });
+    }
+
+    function _signedRecovery(address newHot, uint8 newType, address nextRecovery)
+        internal
+        view
+        returns (KnoadAccount.RecoveryRequest memory request, bytes memory sig)
+    {
+        request = _request(newHot, newType, nextRecovery);
+        bytes32 digest = account.recoveryDigest(request);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(recoveryKey, digest);
+        sig = abi.encodePacked(r, s, v);
+    }
+
+    function _setPolicy(KnoadAccount.Policy memory policy) internal {
+        uint64 nonce = account.authorityNonce();
+        uint64 deadline = uint64(block.timestamp + 1 days);
+        bytes32 digest = keccak256(
+            abi.encode(
+                keccak256(
+                    "Policy(uint128 periodLimit,uint64 windowSeconds,uint64 delaySeconds,uint128 delayThreshold,bool rejectUnlimitedApprovals,uint64 recoveryDelay,address account,uint256 chainId,uint64 authorityNonce,uint64 deadline)"
+                ),
+                policy.periodLimit,
+                policy.windowSeconds,
+                policy.delaySeconds,
+                policy.delayThreshold,
+                policy.rejectUnlimitedApprovals,
+                policy.recoveryDelay,
+                address(account),
+                block.chainid,
+                nonce,
+                deadline
+            )
+        );
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("KNOAD Wallet"),
+                keccak256("1"),
+                block.chainid,
+                address(account)
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(recoveryKey, MessageHashUtils.toTypedDataHash(domain, digest));
+        account.setPolicy(policy, nonce, deadline, abi.encodePacked(r, s, v));
+    }
+
+    function _upgradeDigest(address impl, bytes32 codehash, uint64 readyAt, uint64 nonce, uint64 deadline)
+        internal
+        view
+        returns (bytes32)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "ScheduleUpgrade(address account,uint256 chainId,address newImplementation,bytes32 codehash,uint64 readyAt,uint64 authorityNonce,uint64 deadline)"
+                ),
+                address(account),
+                block.chainid,
+                impl,
+                codehash,
+                readyAt,
+                nonce,
+                deadline
+            )
+        );
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("KNOAD Wallet"),
+                keccak256("1"),
+                block.chainid,
+                address(account)
+            )
+        );
+        return MessageHashUtils.toTypedDataHash(domain, structHash);
+    }
+
+    function _personalSign(bytes32 contents) internal returns (bytes memory) {
+        bytes32 structHash = keccak256(abi.encodePacked(keccak256("PersonalSign(bytes prefixed)"), contents));
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("KNOAD Wallet"),
+                keccak256("1"),
+                block.chainid,
+                address(account)
+            )
+        );
+        return _sign(hotKey, hotType, MessageHashUtils.toTypedDataHash(domain, structHash));
+    }
+}
+
+contract KnoadTest is KnoadHarness {
     function test_writeCreate2Fixture() public {
         address recovery = address(0x1111);
         address predicted = factory.predict(recovery, 0);
@@ -946,306 +1251,4 @@ contract KnoadTest is Test {
         assertLe(overhead, 50_000, "raise EXECUTE_OVERHEAD");
     }
 
-    function _minimumPaymentGas(address receiver) internal returns (uint256 minimum) {
-        uint256 low = 20_000;
-        uint256 high = 400_000;
-        while (low < high) {
-            uint256 mid = (low + high) / 2;
-            if (_paymentLands(receiver, mid)) high = mid;
-            else low = mid + 1;
-        }
-        return low;
-    }
-
-    function _paymentLands(address receiver, uint256 callGas) internal returns (bool landed) {
-        uint256 snap = vm.snapshotState();
-        bytes memory callData = _rotateCallData(_batch(receiver, 0.0001 ether, ""), 0x111, 1);
-        PackedUserOperation memory op = _op(callData, hotKey, hotType, 0);
-        op.accountGasLimits = bytes32(abi.encodePacked(uint128(1_000_000), uint128(callGas)));
-        op.signature = _sign(hotKey, hotType, entryPoint.getUserOpHash(op));
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
-        ops[0] = op;
-        vm.prank(bundler, bundler);
-        try entryPoint.handleOps(ops, bundler) {
-            landed = receiver.balance == 0.0001 ether;
-        } catch {
-            landed = false;
-        }
-        vm.revertToState(snap);
-    }
-
-    function _directPaymentGas(address receiver) internal returns (uint256 used) {
-        uint256 snap = vm.snapshotState();
-        vm.deal(address(this), 1 ether);
-        uint256 before = gasleft();
-        (bool ok,) = receiver.call{value: 0.0001 ether}("");
-        used = before - gasleft();
-        assertTrue(ok);
-        vm.revertToState(snap);
-    }
-
-    function _etchCurrentOp(bytes32 hash) internal returns (bytes memory original) {
-        original = address(entryPoint).code;
-        vm.etch(address(entryPoint), address(new CurrentOpHash(hash)).code);
-    }
-
-    function _restoreEntryPoint(bytes memory original) internal {
-        vm.etch(address(entryPoint), original);
-    }
-
-    function _rotate(bytes memory executionData, uint256 nextKey, uint8 nextType) internal {
-        _submit(_rotateCallData(executionData, nextKey, nextType), hotKey, hotType);
-        hotKey = nextKey;
-        hotType = nextType;
-    }
-
-    function _rotateCallData(bytes memory executionData, uint256 nextKey, uint8 nextType) internal returns (bytes memory) {
-        return abi.encodeCall(KnoadAccount.executeAndRotate, (mode, executionData, _keyAddress(nextKey, nextType), nextType));
-    }
-
-    function _submit(bytes memory callData, uint256 key, uint8 keyType) internal {
-        _submitAtNonce(callData, key, keyType, entryPoint.getNonce(address(account), 0));
-    }
-
-    function _submitAtNonce(bytes memory callData, uint256 key, uint8 keyType, uint256 nonce) internal {
-        PackedUserOperation memory op;
-        op.sender = address(account);
-        op.nonce = nonce;
-        op.callData = callData;
-        uint128 verifyGas = keyType == KnoadLib.KEY_P256 || hotType == KnoadLib.KEY_P256 ? uint128(8_000_000) : uint128(1_000_000);
-        op.accountGasLimits = bytes32(abi.encodePacked(verifyGas, uint128(1_000_000)));
-        op.preVerificationGas = 100_000;
-        op.gasFees = bytes32(abi.encodePacked(uint128(1 gwei), uint128(2 gwei)));
-        op.signature = _sign(key, keyType, entryPoint.getUserOpHash(op));
-        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
-        ops[0] = op;
-        if (nextRevert.length > 0) {
-            bytes memory expected = nextRevert;
-            nextRevert = "";
-            vm.expectRevert(expected);
-        }
-        vm.prank(bundler, bundler);
-        entryPoint.handleOps(ops, bundler);
-    }
-
-    function _sign(uint256 key, uint8 keyType, bytes32 digest) internal returns (bytes memory) {
-        if (keyType == KnoadLib.KEY_SECP256K1) return _signSecp(key, digest);
-        return _signP256(key, digest);
-    }
-
-    function _signSecp(uint256 key, bytes32 digest) internal returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
-        return abi.encodePacked(r, s, v);
-    }
-
-    function _signP256(uint256 key, bytes32 digest) internal returns (bytes memory) {
-        (bytes32 r, bytes32 s) = vm.signP256(key, digest);
-        uint256 ss = uint256(s);
-        if (ss > P256_N / 2) ss = P256_N - ss;
-        (uint256 qx, uint256 qy) = vm.publicKeyP256(key);
-        return abi.encodePacked(r, bytes32(ss), bytes32(qx), bytes32(qy));
-    }
-
-    function _batch(address target, uint256 value, bytes memory data) internal pure returns (bytes memory) {
-        Execution[] memory calls = new Execution[](1);
-        calls[0] = Execution({target: target, value: value, callData: data});
-        return abi.encode(calls);
-    }
-
-    function _retarget(bytes memory code, address from, address to) internal pure returns (bytes memory) {
-        bytes20 current = bytes20(from);
-        bytes20 next = bytes20(to);
-        for (uint256 i = 0; i + 20 <= code.length; i++) {
-            bool found = true;
-            for (uint256 j = 0; j < 20; j++) {
-                if (code[i + j] != current[j]) {
-                    found = false;
-                    break;
-                }
-            }
-            if (found) {
-                for (uint256 j = 0; j < 20; j++) code[i + j] = next[j];
-            }
-        }
-        return code;
-    }
-
-    function _activation(address signer, bytes memory signature)
-        internal
-        pure
-        returns (KnoadFactory.Activation memory)
-    {
-        return KnoadFactory.Activation({initialSigner: signer, keyType: 1, signature: signature});
-    }
-
-    function _activationInit(uint256 recoveryKey_, address recovery, address hot, uint256 index)
-        internal
-        returns (bytes memory)
-    {
-        address predicted = factory.predict(recovery, index);
-        bytes32 digest = factory.activationDigest(predicted, hot, 1);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(recoveryKey_, digest);
-        return abi.encodePacked(
-            address(factory),
-            abi.encodeCall(
-                KnoadFactory.createAccount,
-                (recovery, index, KnoadFactory.Activation({initialSigner: hot, keyType: 1, signature: abi.encodePacked(r, s, v)}))
-            )
-        );
-    }
-
-    function _op(bytes memory callData, uint256 key, uint8 keyType, uint256 nonce)
-        internal
-        returns (PackedUserOperation memory)
-    {
-        return _opFor(address(account), callData, key, keyType, nonce);
-    }
-
-    function _opFor(address sender, bytes memory callData, uint256 key, uint8 keyType, uint256 nonce)
-        internal
-        returns (PackedUserOperation memory op)
-    {
-        op.sender = sender;
-        op.nonce = nonce;
-        op.callData = callData;
-        uint128 verifyGas = keyType == KnoadLib.KEY_P256 ? uint128(8_000_000) : uint128(1_000_000);
-        op.accountGasLimits = bytes32(abi.encodePacked(verifyGas, uint128(1_000_000)));
-        op.preVerificationGas = 100_000;
-        op.gasFees = bytes32(abi.encodePacked(uint128(1 gwei), uint128(2 gwei)));
-        op.signature = _sign(key, keyType, entryPoint.getUserOpHash(op));
-    }
-
-    function _mode() internal pure returns (bytes32) {
-        return Mode.unwrap(
-            ERC7579Utils.encodeMode(
-                ERC7579Utils.CALLTYPE_BATCH, ERC7579Utils.EXECTYPE_DEFAULT, ModeSelector.wrap(0), ModePayload.wrap(0)
-            )
-        );
-    }
-
-    function _keyAddress(uint256 key, uint8 keyType) internal returns (address) {
-        if (keyType == KnoadLib.KEY_P256) return _p256Address(key);
-        return vm.addr(key);
-    }
-
-    function _p256Address(uint256 key) internal returns (address) {
-        (uint256 qx, uint256 qy) = vm.publicKeyP256(key);
-        return KnoadLib.p256Signer(bytes32(qx), bytes32(qy));
-    }
-
-    function _recover(uint256 newHot, uint8 newType, address nextRecovery) internal {
-        (KnoadAccount.RecoveryRequest memory request, bytes memory sig) =
-            _signedRecovery(_keyAddress(newHot, newType), newType, nextRecovery);
-        account.recover(request, sig);
-        if (account.recoveryDelay() == 0) {
-            hotKey = newHot;
-            hotType = newType;
-        }
-    }
-
-    function _request(address newHot, uint8 newType, address nextRecovery)
-        internal
-        view
-        returns (KnoadAccount.RecoveryRequest memory)
-    {
-        return KnoadAccount.RecoveryRequest({
-            account: address(account),
-            chainId: block.chainid,
-            newHotSigner: newHot,
-            newHotKeyType: newType,
-            nextRecoveryAuthority: nextRecovery,
-            recoveryEpoch: account.recoveryEpoch(),
-            authorityNonce: account.authorityNonce(),
-            deadline: uint64(block.timestamp + 1 days)
-        });
-    }
-
-    function _signedRecovery(address newHot, uint8 newType, address nextRecovery)
-        internal
-        view
-        returns (KnoadAccount.RecoveryRequest memory request, bytes memory sig)
-    {
-        request = _request(newHot, newType, nextRecovery);
-        bytes32 digest = account.recoveryDigest(request);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(recoveryKey, digest);
-        sig = abi.encodePacked(r, s, v);
-    }
-
-    function _setPolicy(KnoadAccount.Policy memory policy) internal {
-        uint64 nonce = account.authorityNonce();
-        uint64 deadline = uint64(block.timestamp + 1 days);
-        bytes32 digest = keccak256(
-            abi.encode(
-                keccak256(
-                    "Policy(uint128 periodLimit,uint64 windowSeconds,uint64 delaySeconds,uint128 delayThreshold,bool rejectUnlimitedApprovals,uint64 recoveryDelay,address account,uint256 chainId,uint64 authorityNonce,uint64 deadline)"
-                ),
-                policy.periodLimit,
-                policy.windowSeconds,
-                policy.delaySeconds,
-                policy.delayThreshold,
-                policy.rejectUnlimitedApprovals,
-                policy.recoveryDelay,
-                address(account),
-                block.chainid,
-                nonce,
-                deadline
-            )
-        );
-        bytes32 domain = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256("KNOAD Wallet"),
-                keccak256("1"),
-                block.chainid,
-                address(account)
-            )
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(recoveryKey, MessageHashUtils.toTypedDataHash(domain, digest));
-        account.setPolicy(policy, nonce, deadline, abi.encodePacked(r, s, v));
-    }
-
-    function _upgradeDigest(address impl, bytes32 codehash, uint64 readyAt, uint64 nonce, uint64 deadline)
-        internal
-        view
-        returns (bytes32)
-    {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                keccak256(
-                    "ScheduleUpgrade(address account,uint256 chainId,address newImplementation,bytes32 codehash,uint64 readyAt,uint64 authorityNonce,uint64 deadline)"
-                ),
-                address(account),
-                block.chainid,
-                impl,
-                codehash,
-                readyAt,
-                nonce,
-                deadline
-            )
-        );
-        bytes32 domain = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256("KNOAD Wallet"),
-                keccak256("1"),
-                block.chainid,
-                address(account)
-            )
-        );
-        return MessageHashUtils.toTypedDataHash(domain, structHash);
-    }
-
-    function _personalSign(bytes32 contents) internal returns (bytes memory) {
-        bytes32 structHash = keccak256(abi.encodePacked(keccak256("PersonalSign(bytes prefixed)"), contents));
-        bytes32 domain = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256("KNOAD Wallet"),
-                keccak256("1"),
-                block.chainid,
-                address(account)
-            )
-        );
-        return _sign(hotKey, hotType, MessageHashUtils.toTypedDataHash(domain, structHash));
-    }
 }

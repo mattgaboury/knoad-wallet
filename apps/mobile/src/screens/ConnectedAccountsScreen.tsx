@@ -241,7 +241,7 @@ export function ConnectedAccountsScreen(props: {
     <View style={styles.wrap}>
       <PageTitle title={LINK_COPY.title} subtitle={LINK_COPY.subtitle} />
       {phase === "conflict" ? (
-        <Card>
+        <Card style={styles.panel}>
           <Text style={styles.body}>{message}</Text>
           <PrimaryButton
             label="Move the unverified wallet"
@@ -255,7 +255,7 @@ export function ConnectedAccountsScreen(props: {
         </Card>
       ) : null}
       {phase === "pick" ? (
-        <Card>
+        <Card style={styles.panel}>
           <Text style={styles.kicker}>{many ? LINK_COPY.walletsOnPhone : LINK_COPY.walletOnPhone}</Text>
           <Text style={styles.title}>{many ? LINK_COPY.verifyTitlePlural : LINK_COPY.verifyTitle}</Text>
           <Text style={styles.body}>{many ? LINK_COPY.verifyBodyPlural : LINK_COPY.verifyBody}</Text>
@@ -290,31 +290,35 @@ export function ConnectedAccountsScreen(props: {
         </Card>
       ) : null}
       {phase === "manage" && profile ? (
-        <Card>
+        <Card style={styles.panel}>
           <Text style={styles.title}>{LINK_COPY.manage}</Text>
-          {(account?.addresses ?? []).map((row) => (
-            <View key={row.address} style={styles.addressRow}>
-              <View style={styles.copy}>
-                <Text style={styles.row}>{shortAddress(row.checksum)}</Text>
-                <Text style={styles.meta}>{row.role === "primary" ? LINK_COPY.main : LINK_COPY.alternative}</Text>
+          <View style={styles.list}>
+            {(account?.addresses ?? []).map((row) => (
+              <View key={row.address} style={styles.addressRow}>
+                <Text style={styles.address}>{shortAddress(row.checksum)}</Text>
+                <View style={styles.trailing}>
+                  <Text style={styles.role}>{row.role === "primary" ? LINK_COPY.main : LINK_COPY.alternative}</Text>
+                  <Text onPress={() => void copyAddress(row.checksum)} style={styles.link}>
+                    {copied === row.checksum ? LINK_COPY.copied : LINK_COPY.copy}
+                  </Text>
+                  {row.verifiedByApp || row.role === "secondary" ? (
+                    <Text onPress={() => void remove(row.address, row.role === "primary")} style={styles.link}>
+                      {confirmPrimary === row.address ? LINK_COPY.confirmRemove : LINK_COPY.remove}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
-              <Text onPress={() => void copyAddress(row.checksum)} style={styles.link}>
-                {copied === row.checksum ? LINK_COPY.copied : LINK_COPY.copy}
-              </Text>
-              {row.verifiedByApp || row.role === "secondary" ? (
-                <Text onPress={() => void remove(row.address, row.role === "primary")} style={styles.link}>
-                  {confirmPrimary === row.address ? LINK_COPY.confirmRemove : LINK_COPY.remove}
-                </Text>
-              ) : null}
-            </View>
-          ))}
+            ))}
+          </View>
           {phoneHasUnlinked ? (
-            <OutlineButton label={many ? LINK_COPY.linkMany : LINK_COPY.linkOne} onPress={openVerify} />
+            <View style={styles.actions}>
+              <OutlineButton label={many ? LINK_COPY.linkMany : LINK_COPY.linkOne} onPress={openVerify} />
+            </View>
           ) : null}
         </Card>
       ) : null}
       {phase === "ready" && profile ? (
-        <Card>
+        <Card style={styles.panel}>
           <View style={styles.identity}>
             {profile.avatarUrl ? <Image source={{ uri: profile.avatarUrl }} style={styles.avatar} /> : null}
             <View style={styles.copy}>
@@ -322,25 +326,29 @@ export function ConnectedAccountsScreen(props: {
               <Text style={styles.meta}>{LINK_COPY.discordConnected}</Text>
             </View>
           </View>
-          <Text style={styles.title}>{`${LINK_COPY.linkedWallets} ${account?.addresses.length ?? 0}`}</Text>
-          {(account?.addresses ?? []).map((row) => (
-            <View key={row.address} style={styles.copy}>
-              <Text style={styles.row}>{shortAddress(row.checksum)}</Text>
-              <Text style={styles.meta}>{row.role === "primary" ? LINK_COPY.main : LINK_COPY.alternative}</Text>
-            </View>
-          ))}
+          <View style={styles.list}>
+            <Text style={styles.sectionTitle}>{`${LINK_COPY.linkedWallets} ${account?.addresses.length ?? 0}`}</Text>
+            {(account?.addresses ?? []).map((row) => (
+              <View key={row.address} style={styles.addressRow}>
+                <Text style={styles.address}>{shortAddress(row.checksum)}</Text>
+                <Text style={styles.role}>{row.role === "primary" ? LINK_COPY.main : LINK_COPY.alternative}</Text>
+              </View>
+            ))}
+          </View>
           <Text style={styles.body}>{LINK_COPY.footnote}</Text>
-          <OutlineButton label={LINK_COPY.manage} onPress={() => setPhase("manage")} />
-          {confirmDisconnect ? (
-            <PrimaryButton label={LINK_COPY.disconnect} disabled={busy} onPress={() => void disconnect()} />
-          ) : (
-            <OutlineButton label={LINK_COPY.disconnect} tone="danger" onPress={() => setConfirmDisconnect(true)} />
-          )}
-          {confirmDisconnect ? <Text style={styles.body}>{LINK_COPY.disconnectBody}</Text> : null}
+          <View style={styles.actions}>
+            <OutlineButton label={LINK_COPY.manage} onPress={() => setPhase("manage")} />
+            {confirmDisconnect ? (
+              <PrimaryButton label={LINK_COPY.disconnect} disabled={busy} onPress={() => void disconnect()} />
+            ) : (
+              <OutlineButton label={LINK_COPY.disconnect} tone="danger" onPress={() => setConfirmDisconnect(true)} />
+            )}
+            {confirmDisconnect ? <Text style={styles.body}>{LINK_COPY.disconnectBody}</Text> : null}
+          </View>
         </Card>
       ) : null}
       {phase === "ready" && !profile ? (
-        <Card>
+        <Card style={styles.panel}>
           <Text style={styles.body}>{LINK_COPY.connectBody}</Text>
           <Text style={styles.body}>{LINK_COPY.reassurance}</Text>
           <PrimaryButton label={LINK_COPY.continue} disabled={busy} onPress={() => void connect()} />
@@ -364,16 +372,23 @@ export function ConnectedAccountsScreen(props: {
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 12 },
-  identity: { flexDirection: "row", alignItems: "center", gap: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.inset },
-  copy: { flex: 1, gap: 2 },
+  wrap: { gap: 16 },
+  panel: { gap: 22 },
+  identity: { flexDirection: "row", alignItems: "center", gap: 14 },
+  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: theme.inset },
+  copy: { flex: 1, gap: 4 },
+  list: { gap: 2 },
   title: { color: theme.text, fontFamily: theme.font.semibold, fontSize: theme.type.card },
+  sectionTitle: { color: theme.text, fontFamily: theme.font.semibold, fontSize: theme.type.card, marginBottom: 8 },
   row: { color: theme.text, fontFamily: theme.font.medium, fontSize: theme.type.row },
+  address: { color: theme.text, fontFamily: theme.font.medium, fontSize: theme.type.row, flex: 1 },
   body: { color: theme.textMuted, fontFamily: theme.font.regular, fontSize: theme.type.body, lineHeight: 20 },
   meta: { color: theme.textDim, fontFamily: theme.font.regular, fontSize: theme.type.caption },
+  role: { color: theme.textMuted, fontFamily: theme.font.medium, fontSize: theme.type.caption },
   kicker: { color: theme.textDim, fontFamily: theme.font.semibold, fontSize: theme.type.caption, letterSpacing: 0.4 },
-  link: { color: theme.mint, fontFamily: theme.font.semibold, fontSize: theme.type.row },
-  choice: { gap: 2, paddingVertical: 4 },
-  addressRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  link: { color: theme.mint, fontFamily: theme.font.semibold, fontSize: theme.type.caption },
+  choice: { gap: 2, paddingVertical: 8 },
+  addressRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 40 },
+  trailing: { flexDirection: "row", alignItems: "center", gap: 14 },
+  actions: { gap: 12 },
 });

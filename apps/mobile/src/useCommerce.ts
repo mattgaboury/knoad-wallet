@@ -13,6 +13,7 @@ import {
   precheckPolicy,
   quoteCallsHash,
   quoteFromJson,
+  withPermissionAdvisory,
   getChain,
   quoteOperationGas,
   rankQuotes,
@@ -173,7 +174,7 @@ export function useCommerce(host: Host) {
         asset: sell.symbol,
         to: bridging ? getChain(buy.chainId)?.name ?? "another chain" : buy.symbol,
       });
-      host.setNote("Sent. The old key stops when this lands.");
+      host.setNote(withPermissionAdvisory("Sent. The old key stops when this lands."));
       if (bridging) {
         setBridge({ userOpHash: hash, txHash: null, from: quoteShown.chainId, to: quoteShown.destinationChainId, status: "In transit" });
       }

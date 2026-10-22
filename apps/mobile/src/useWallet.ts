@@ -25,6 +25,7 @@ import {
   deriveRecovery,
   deriveRecoveryAsync,
   describeDecision,
+  describeWethOffer,
   messageChainId,
   signatureChain,
   typedDataChainId,
@@ -54,6 +55,12 @@ import {
   recoveryDigest,
   recoverySteps,
   routeSessionRequest,
+  narrowSiteApprovals,
+  withPermissionAdvisory,
+  OFFER_NOT_SAVED,
+  orderGrantCall,
+  orderRevokeCall,
+  readWethOffer,
   sealUtf8WithKey,
   tokensForChain,
   type VaultKey,
@@ -76,7 +83,7 @@ import {
   type StoredWallet,
   BundlerRefusal,
 } from "@knoad/wallet-core";
-import { appendActivity, loadActivity, markActivity, patchActivity, pendingRows } from "./activityLog";
+import { appendActivity, loadActivity, markActivity, markOffersCancelled, patchActivity, pendingRows } from "./activityLog";
 import { nftTransferCall, siteCallLabel, type HeldNft } from "./nfts";
 import { bioFailureMessage, clearBioKey, isBioCancel, openWithHeldKey, readBioFlag, readBioKey, saveBioKey } from "./biometric";
 import { DEFAULT_CHAIN_ID, WALLETCONNECT_PROJECT_ID, chainEnv } from "./config";
@@ -265,6 +272,9 @@ export function useWallet() {
   const [bioOn, setBioOn] = useState(false);
   const [browserOrigins, setBrowserOrigins] = useState<string[]>([]);
   const grantedOrigins = useRef(new Set<string>());
+  const heldNfts = useRef<HeldNft[]>([]);
+  const offerLock = useRef(false);
+  const offerBypass = useRef(false);
   const [pairMessage, setPairMessage] = useState("");
   const [pairBusy, setPairBusy] = useState(false);
   const pairing = useRef(false);
@@ -767,6 +777,9 @@ export function useWallet() {
         txHash: outcome.txHash,
         nonce: outcome.nonce || entry.nonce,
       });
+      if (entry.kind === "offer" && entry.to === "revoke" && outcome.success && entry.digest) {
+        await markOffersCancelled(entry.digest);
+      }
       changed = true;
     }
     return changed;
@@ -903,13 +916,68 @@ export function useWallet() {
     );
   }
 
-  function signConnectedTypedData(source: VaultRecord, typedDataJson: string, selected: number): Promise<Hex> {
+  async function signConnectedTypedData(source: VaultRecord, typedDataJson: string, selected: number): Promise<Hex> {
     if (!source.account) throw new Error("Unlock this phone first.");
     const request = parseTypedDataRequest(typedDataJson);
     const signingChain = chainTheRequestNames(typedDataChainId(request?.domain.chainId), selected);
-    return signOnRequestedChain(source, signingChain, (signCurrent) =>
-      signTypedData({ account: source.account as Address, chainId: signingChain, typedDataJson, signCurrent }),
-    );
+    const offer = request && source.account ? readWethOffer(request, source.account, signingChain) : null;
+    if (offer && (chainState(source, signingChain).pendingSend || offerLock.current)) {
+      throw new Error("A send is waiting. Speed it up or cancel it first.");
+    }
+    if (offer) offerLock.current = true;
+    let signature: Hex;
+    try {
+      signature = await signOnRequestedChain(source, signingChain, (signCurrent) =>
+        signTypedData({ account: source.account as Address, chainId: signingChain, typedDataJson, signCurrent }),
+      );
+    } catch (error) {
+      offerLock.current = false;
+      throw error;
+    }
+    if (offer && source.account) void registerOfferGrant(source, signingChain, offer, source.account);
+    return signature;
+  }
+
+  async function registerOfferGrant(
+    source: VaultRecord,
+    signingChain: number,
+    offer: NonNullable<ReturnType<typeof readWethOffer>>,
+    account: Address,
+  ) {
+    offerBypass.current = true;
+    try {
+      const described = describeWethOffer(offer);
+      const sent = await signAndMaybeSend(source, signingChain, [orderGrantCall(account, offer)], {
+        asset: "WETH",
+        amount: described.amount,
+      });
+      if (!sent.hash || !sent.next) {
+        setNote(OFFER_NOT_SAVED);
+        return;
+      }
+      await persist(sent.next);
+      await appendActivity({
+        id: sent.hash,
+        chainId: signingChain,
+        kind: "offer",
+        hash: sent.hash,
+        amount: described.amount,
+        asset: "WETH",
+        to: described.nft,
+        toName: described.ends,
+        digest: offer.digest,
+        expiry: Number(offer.expiry),
+        time: Date.now(),
+        status: "pending",
+        nonce: chainState(sent.next, signingChain).pendingSend?.nonce,
+        account,
+      }).catch(() => undefined);
+    } catch {
+      setNote(OFFER_NOT_SAVED);
+    } finally {
+      offerBypass.current = false;
+      offerLock.current = false;
+    }
   }
 
   async function assertHoldsKey(source: VaultRecord, selected: number) {
@@ -940,7 +1008,21 @@ export function useWallet() {
     const account = source.account;
     if (!account) throw new Error("Unlock this phone first.");
     const state = chainState(source, selected);
-    if (state.pendingSend) throw new Error("A send is waiting. Speed it up or cancel it first.");
+    if (state.pendingSend || (offerLock.current && !offerBypass.current)) {
+      throw new Error("A send is waiting. Speed it up or cancel it first.");
+    }
+    const narrowed = narrowSiteApprovals(
+      calls,
+      heldNfts.current.flatMap((nft) => {
+        if (nft.chainId !== selected) return [];
+        try {
+          return [{ contract: getAddress(nft.contract), tokenId: BigInt(nft.tokenId), standard: nft.standard }];
+        } catch {
+          return [];
+        }
+      }),
+    );
+    calls = narrowed;
     await assertHoldsKey(source, selected);
     const env = chainEnv(selected);
     const generation = BigInt(state.generation);
@@ -1070,7 +1152,7 @@ export function useWallet() {
         nonce: chainState(sent.next, chainId).pendingSend?.nonce,
         account: record.account,
       }).catch(() => undefined);
-      setNote("Sent. Waiting for the network.");
+      setNote(withPermissionAdvisory("Sent. Waiting for the network."));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not send.";
       if (message.startsWith("Not enough ") || message.startsWith("The network fee could not be sized")) throw error;
@@ -1181,6 +1263,7 @@ export function useWallet() {
     const sent = await signAndMaybeSend(source, selected, calls);
     if (!sent.hash || !sent.next) throw new Error("Sending is not connected on this chain yet.");
     await persist(sent.next);
+    setNote(withPermissionAdvisory("Sent. Waiting for the network."));
     await appendActivity({
       id: sent.hash,
       chainId: selected,
@@ -1229,7 +1312,7 @@ export function useWallet() {
       nonce: chainState(sent.next, nft.chainId).pendingSend?.nonce,
       account: record.account,
     });
-    setNote("Sent. Waiting for the network.");
+    setNote(withPermissionAdvisory("Sent. Waiting for the network."));
   }
 
   async function submitCalls(calls: Call[], meta?: { kind: "swap" | "bridge"; amount?: string; asset?: string; to?: string }): Promise<string> {
@@ -1265,7 +1348,7 @@ export function useWallet() {
     const state = chainState(adopted, selectedChain);
     const pending = state.pendingSend;
     if (!pending) {
-      setNote(hadPending ? "This chain switched keys. Other chains switch on their own." : "Nothing is waiting on this chain.");
+      setNote(hadPending ? withPermissionAdvisory("This chain switched keys. Other chains switch on their own.") : "Nothing is waiting on this chain.");
       return;
     }
     try {
@@ -1352,7 +1435,7 @@ export function useWallet() {
         nonce: pending.nonce,
         account: adopted.account ?? undefined,
       }).catch(() => undefined);
-      setNote(kind === "send" ? "Fee raised. The old key stays until this lands." : "Cancel sent. The old key stays until this lands.");
+      setNote(withPermissionAdvisory(kind === "send" ? "Fee raised. The old key stays until this lands." : "Cancel sent. The old key stays until this lands."));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not replace the send.";
       setNote(message);
@@ -1993,11 +2076,16 @@ export function useWallet() {
       try {
         await session.disconnect();
       } catch {
-        setNote("Removed on this phone.");
+        // The phone still drops the pairing.
       }
       setSession(null);
     }
     setSites(await forgetSite(topic));
+    setNote(withPermissionAdvisory("Removed on this phone."));
+  }
+
+  function rememberHeldNfts(next: HeldNft[]) {
+    heldNfts.current = next;
   }
 
   async function confirmPassword(value: string): Promise<boolean> {
@@ -2165,6 +2253,31 @@ export function useWallet() {
     return signConnectedMessage(source, message, chainTheRequestNames(messageChainId(message), file.selectedChainId));
   }
 
+  async function cancelOffer(chain: number, digest: Hex) {
+    if (!record?.account) throw new Error("Unlock this phone first.");
+    if (offerLock.current || chainState(record, chain).pendingSend) {
+      throw new Error("A send is waiting. Speed it up or cancel it first.");
+    }
+    const sent = await signAndMaybeSend(record, chain, [orderRevokeCall(record.account, digest)], { asset: "WETH" });
+    if (!sent.hash || !sent.next) throw new Error("Sending is not connected on this chain yet.");
+    await persist(sent.next);
+    const prior = (await loadActivity()).find((item) => item.kind === "offer" && item.digest === digest && item.to !== "revoke");
+    await appendActivity({
+      id: sent.hash,
+      chainId: chain,
+      kind: "offer",
+      hash: sent.hash,
+      amount: prior?.amount,
+      asset: "WETH",
+      to: "revoke",
+      digest,
+      time: Date.now(),
+      status: "pending",
+      nonce: chainState(sent.next, chain).pendingSend?.nonce,
+      account: record.account,
+    });
+  }
+
   const address = record?.account ?? standard?.address ?? null;
   const main = vaultFile?.wallets.find((wallet) => wallet.kind === "knoad" && wallet.accountIndex === 0);
   const mainAddress = main?.kind === "knoad" ? main.account : address ?? "";
@@ -2214,6 +2327,7 @@ export function useWallet() {
     browserOrigins,
     revokeBrowser,
     disconnectSite,
+    rememberHeldNfts,
     confirmPassword,
     enableBiometric,
     disableBiometric,
@@ -2247,6 +2361,7 @@ export function useWallet() {
     scanChains,
     send,
     transferNft,
+    cancelOffer,
     pair,
     chooseChain,
     buildLook,

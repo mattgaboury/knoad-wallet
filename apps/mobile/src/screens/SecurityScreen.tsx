@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { PERMISSION_ADVISORY } from "@knoad/wallet-core";
 import { daysAgo, hostOf, verifiedDate } from "../format";
 import { spendingKeyLine } from "../spendingKey";
 import type { SavedSite } from "../sites";
@@ -120,8 +121,9 @@ export function SecurityScreen(props: {
           <Count value="—" label="NFT permissions" caption="Not checked" />
           <Count value={String(props.sites.length)} label="dApp permissions" caption="Connected" />
         </View>
+        <Text style={styles.body}>{PERMISSION_ADVISORY}</Text>
         {approvals ? (
-          <Text style={styles.body}>Disconnecting a site does not revoke token approvals. Token and NFT allowances are not scanned yet.</Text>
+          <Text style={styles.body}>Token and NFT allowances are not scanned yet, and this phone does not revoke them for you.</Text>
         ) : null}
       </Pressable>
 

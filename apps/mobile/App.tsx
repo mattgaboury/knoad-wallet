@@ -60,6 +60,7 @@ type Route =
 type Gate =
   | { kind: "send"; to: string; amount: string; symbol: string; fiat: string | null; toName?: string }
   | { kind: "speed" | "cancel"; chainId: number; summary: string }
+  | { kind: "offer"; chainId: number; summary: string; digest: string }
   | { kind: "trade"; summary: string }
   | { kind: "nft"; nft: HeldNft; to: string }
   | { kind: "link"; summary: string; resolve: (ok: boolean) => void };
@@ -237,13 +238,17 @@ function WalletApp() {
   }, [wallet.record, wallet.note]);
 
   useEffect(() => {
-    if (!account) return;
+    if (!account) {
+      wallet.rememberHeldNfts([]);
+      return;
+    }
     let live = true;
     setNftStatus("loading");
     void (async () => {
       const read = await readWalletNfts(account);
       if (!live) return;
       setNfts(read.nfts);
+      wallet.rememberHeldNfts(read.nfts);
       setNftStatus(read.ok ? (read.nfts.length > 0 ? "ready" : "empty") : "error");
       if (read.activity.length > 0 && (await mergeActivity(read.activity)) && live) setLog(await loadActivity());
     })();
@@ -445,6 +450,7 @@ function WalletApp() {
       setRoute({ name: "tab", tab: "activity" });
     } else if (gate.kind === "speed") await wallet.speedUp(gate.chainId);
     else if (gate.kind === "cancel") await wallet.cancelSend(gate.chainId);
+    else if (gate.kind === "offer") await wallet.cancelOffer(gate.chainId, gate.digest as `0x${string}`);
     else if (gate.kind === "nft") {
       await wallet.transferNft(gate.nft, gate.to);
       setNftTick((value) => value + 1);
@@ -771,6 +777,16 @@ function WalletApp() {
           if (!pending) return;
           setGate({ kind: "cancel", chainId: pending.chainId, summary: "Replace this operation with an empty one. The transfer will not be sent." });
         }}
+        onCancelOffer={(item) => {
+          if (!item.digest) return;
+          setGateError("");
+          setGate({
+            kind: "offer",
+            chainId: item.chainId,
+            digest: item.digest,
+            summary: "Cancel this WETH offer. It can no longer be accepted.",
+          });
+        }}
         onFix={(recommend) => {
           if (!pending) return;
           setGate({
@@ -944,7 +960,7 @@ function WalletApp() {
       >
         {wallet.note && !auth && !gate && route.name !== "browser" ? (
           <View style={styles.noteRow}>
-            <Text style={[styles.note, styles.noteText]} numberOfLines={1}>
+            <Text style={[styles.note, styles.noteText]} numberOfLines={4}>
               {wallet.note}
             </Text>
             <Pressable onPress={() => wallet.setNote("")} hitSlop={8} accessibilityLabel="Dismiss note">

@@ -1,5 +1,6 @@
 import { getAddress, isAddress, type Address, type Hex } from "viem";
 import { getChain } from "./chains";
+import { describeWethOffer, readWethOffer } from "./seaport";
 import { parseTypedDataRequest } from "./typedData";
 import type { Call } from "./types";
 
@@ -8,7 +9,15 @@ export type SessionDecision =
   | { kind: "chain"; chainId: number; origin?: string }
   | { kind: "switch-chain"; chainId: number; origin?: string }
   | { kind: "sign-message"; address: Address; chainId: number; message: string; origin?: string }
-  | { kind: "sign-typed-data"; address: Address; chainId: number; typedDataJson: string; summary: string; origin?: string }
+  | {
+      kind: "sign-typed-data";
+      address: Address;
+      chainId: number;
+      typedDataJson: string;
+      summary: string;
+      offer?: { amount: string; nft: string; ends: string };
+      origin?: string;
+    }
   | { kind: "sign-calls"; address: Address; chainId: number; calls: Call[]; summary: string; origin?: string }
   | { kind: "reject"; reason: string; origin?: string };
 
@@ -25,6 +34,10 @@ const ALLOWED_KEYS = new Set([
   "data",
   "typedDataJson",
   "origin",
+  "offer",
+  "amount",
+  "nft",
+  "ends",
 ]);
 
 /** What a paired origin is allowed to see. Never a seed, key, or vault. */
@@ -93,13 +106,16 @@ export function routeSessionRequest(input: {
     const name = request?.domain.name ? ` (${request.domain.name})` : "";
     const chain = signatureChain(typedDataChainId(request?.domain.chainId), input.chainId);
     if (typeof chain !== "number") return { kind: "reject", reason: chain.reject };
+    const offer = request ? readWethOffer(request, getAddress(input.account), chain) : null;
+    const described = offer ? describeWethOffer(offer) : null;
     return withOrigin(
       {
         kind: "sign-typed-data",
         address: getAddress(input.account),
         chainId: chain,
         typedDataJson: parsed,
-        summary: `Sign ${request?.primaryType ?? "typed data"}${name}`,
+        summary: described?.summary ?? `Sign ${request?.primaryType ?? "typed data"}${name}`,
+        ...(described ? { offer: { amount: described.amount, nft: described.nft, ends: described.ends } } : {}),
       },
       input.origin,
     );

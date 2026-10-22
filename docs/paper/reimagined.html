@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KNOAD Wallet — A wallet that's always one step ahead</title>
+<style>
+@font-face { font-family: Sora; src: url("fonts/Sora.ttf") format("truetype"); font-weight: 100 800; font-display: block; }
+@font-face { font-family: Inter; src: url("fonts/Inter-Regular.woff2") format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: Inter; src: url("fonts/Inter-Medium.woff2") format("woff2"); font-weight: 500; font-display: block; }
+@font-face { font-family: Inter; src: url("fonts/Inter-SemiBold.woff2") format("woff2"); font-weight: 600; font-display: block; }
+* { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
+@page {
+  size: letter;
+  margin: 0.58in 0.64in 0.52in;
+  @top-left { content: "knoad WALLET  /  WHITE PAPER"; font-family: Sora, sans-serif; font-size: 8pt; letter-spacing: 0.06em; color: #14603f; }
+  @bottom-left { content: "Development build  ·  pre-audit  ·  not for assets of value"; font-family: Inter, sans-serif; font-size: 8pt; color: #5d7366; }
+  @bottom-right { content: counter(page); font-family: Sora, sans-serif; font-size: 9pt; color: #14603f; }
+}
+@page cover {
+  margin: 0;
+  @top-left { content: none; }
+  @bottom-left { content: none; }
+  @bottom-right { content: none; }
+}
+html, body { margin: 0; background: #f4f8f5; color: #14261c; font-family: Inter, sans-serif; font-size: 10.25pt; line-height: 1.4; }
+.cover {
+  page: cover;
+  height: 11in;
+  background: #07140d;
+  color: rgba(255, 255, 255, 0.93);
+  padding: 0.85in 0.78in 0.7in;
+  display: flex;
+  flex-direction: column;
+}
+.lockup { display: flex; flex-direction: column; align-items: flex-start; gap: 0.22in; }
+.cover-mark { width: 168px; height: auto; }
+.cover-title { width: 280px; height: auto; }
+.wallet-label { margin: 0.08in 0 0; letter-spacing: 0.42em; text-transform: uppercase; font-family: Sora, sans-serif; font-size: 11pt; color: rgba(255, 255, 255, 0.72); }
+.eyebrow { margin: 0.42in 0 0; letter-spacing: 0.18em; text-transform: uppercase; font-size: 10pt; color: #3dd68c; font-family: Sora, sans-serif; }
+.deck { margin: 0.16in 0 0; max-width: 6.4in; font-family: Sora, sans-serif; font-weight: 600; font-size: 26pt; line-height: 1.12; letter-spacing: -0.03em; color: white; }
+.sub { margin: 0.18in 0 0; max-width: 5.8in; font-size: 12pt; line-height: 1.4; color: rgba(255, 255, 255, 0.78); }
+.cover .status { margin-top: auto; font-size: 9pt; line-height: 1.45; color: rgba(255, 255, 255, 0.62); }
+.banner { margin-top: 0.16in; font-family: Sora, sans-serif; font-size: 9pt; letter-spacing: 0.04em; color: #ffb020; }
+h2 { font-family: Sora, sans-serif; font-weight: 600; font-size: 18pt; letter-spacing: -0.03em; color: #0d1f14; margin: 1.15em 0 0.4em; padding-top: 0.3em; border-top: 3px solid #3dd68c; break-before: auto; break-after: avoid; }
+h2#part-1 { margin-top: 0; padding-top: 0; border-top: 0; }
+h2.cont { break-before: auto; margin-top: 1.1em; padding-top: 0.35em; border-top: 3px solid #3dd68c; }
+h3 { font-family: Sora, sans-serif; font-weight: 600; font-size: 13pt; color: #14603f; margin: 0.85em 0 0.22em; break-after: avoid; }
+p { margin: 0 0 0.48em; }
+.kicker { margin: 0 0 0.2em; font-family: Sora, sans-serif; font-size: 9pt; letter-spacing: 0.14em; text-transform: uppercase; color: #14603f; }
+.slogan { font-family: Sora, sans-serif; font-weight: 600; font-size: 12.5pt; color: #0d1f14; margin: 0.2em 0 0.7em; }
+.aside { font-family: Sora, sans-serif; font-weight: 600; font-size: 11.5pt; line-height: 1.35; color: #0d1f14; margin: 0.15em 0 0.75em; }
+a { color: #14603f; }
+figure { margin: 0.1em 0 0.6em; break-inside: avoid; background: white; padding: 6px 8px 8px; }
+figcaption { font-family: Sora, sans-serif; font-weight: 600; font-size: 9pt; letter-spacing: 0.08em; text-transform: uppercase; color: #14603f; margin: 0 0 0.4em; }
+figure svg { width: 100%; height: auto; display: block; }
+table { width: 100%; border-collapse: collapse; margin: 0.25em 0 0.65em; font-size: 8.5pt; line-height: 1.3; break-inside: auto; }
+table.keep { break-inside: avoid; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th { text-align: left; background: #0d1f14; color: white; font-family: Sora, sans-serif; font-weight: 500; padding: 5px 6px; }
+td { padding: 5px 6px; vertical-align: top; border-bottom: 1px solid rgba(20, 96, 63, 0.16); }
+tbody tr:nth-child(even) td { background: rgba(61, 214, 140, 0.12); }
+code, .addr { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 0.82em; }
+.eq { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 8.4pt; background: #0d1f14; color: white; padding: 8px 10px; margin: 0 0 0.7em; break-inside: avoid; }
+pre { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 8pt; line-height: 1.35; background: #0d1f14; color: #e7f6ee; padding: 10px 12px; margin: 0 0 0.7em; break-inside: avoid; white-space: pre-wrap; }
+ul { margin: 0 0 0.7em; padding-left: 1.1em; }
+li { margin: 0.2em 0; }
+.gas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 0.45em; break-inside: avoid; }
+.gas article { background: #0d1f14; color: white; padding: 10px; }
+.gas strong { display: block; font-family: Sora, sans-serif; font-size: 16pt; color: #3dd68c; }
+.gas span { font-size: 8.5pt; color: rgba(255, 255, 255, 0.75); }
+.note { font-size: 9pt; color: #3d5c4c; margin: 0 0 0.8em; }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="lockup">
+    <img class="cover-mark" src="assets/mark-white.png" alt="">
+    <img class="cover-title" src="assets/title-white.png" alt="knoad">
+    <p class="wallet-label">Wallet</p>
+  </div>
+  <p class="deck">A wallet that's always one step ahead.</p>
+  <p class="sub">Fresh signing keys. Persistent ownership. A self-custodial design for a changing threat landscape.</p>
+  <p class="eyebrow">Cronosynthesis</p>
+  <p class="status">Technical white paper · 21 October 2026<br>Based on the 16 October 2026 implementation paper. Spec 1.4 remains normative.</p>
+  <p class="banner">PRE-AUDIT — NOT CLEARED FOR ASSETS OF VALUE</p>
+</section>
+
+<h2 id="part-1">Part I — The idea</h2>
+<p class="kicker">What if your wallet was always one step ahead?</p>
+<p>Imagine a password that changed itself after every use. Even if someone discovered the old one, it could no longer open the door.</p>
+<p>That's the idea behind KNOAD.</p>
+<p>Unlike a traditional wallet that keeps relying on the same spending key, KNOAD automatically replaces its active spending key after each included, successfully validated wallet operation. Yesterday's key cannot authorize tomorrow's transactions on that chain.</p>
+<p class="slogan">Keeping yesterday's access out of tomorrow's hands.<br>If you know, you KNOAD.</p>
+<h3 id="short-version">The short version</h3>
+<p>Your crypto wallet is protected by a digital key. In a traditional self-custodial wallet, that spending key usually remains authorized for the life of the address. If someone copies it, the key continues to work until the assets are moved or some other intervention changes control.</p>
+<p>KNOAD is built around a different idea: your address should be durable, but the key allowed to spend should not be. After the network includes a qualifying operation, the wallet installs a fresh spending key and stops accepting the previous one. You don't have to generate, remember, or manually swap keys. Your assets do not need to move to a new address just because the daily spending key changes.</p>
+<p>KNOAD is self-custodial. A separate 24-word recovery phrase belongs to you, not to Cronosynthesis, and is distinct from the spending key that changes. That separation is central to the design.</p>
+<figure>
+  <figcaption>Why it matters / key access over time</figcaption>
+  <svg viewBox="0 0 720 168" role="img" aria-label="Traditional wallet keeps one key. KNOAD retires each key after the next is included.">
+    <text x="0" y="16" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#0d1f14">Traditional</text>
+    <line x1="128" y1="36" x2="700" y2="36" stroke="#c5d5cb" stroke-width="2"/>
+    <rect x="150" y="22" width="44" height="28" rx="3" fill="#0d1f14"/><text x="172" y="41" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" fill="#fff">K</text>
+    <rect x="290" y="22" width="44" height="28" rx="3" fill="#0d1f14"/><text x="312" y="41" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" fill="#fff">K</text>
+    <rect x="430" y="22" width="44" height="28" rx="3" fill="#0d1f14"/><text x="452" y="41" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" fill="#fff">K</text>
+    <rect x="570" y="22" width="44" height="28" rx="3" fill="#0d1f14"/><text x="592" y="41" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" fill="#fff">K</text>
+    <text x="128" y="68" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">The same signer remains authorized.</text>
+    <text x="0" y="100" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#14603f">KNOAD</text>
+    <line x1="128" y1="120" x2="700" y2="120" stroke="#3dd68c" stroke-width="2"/>
+    <rect x="150" y="106" width="52" height="28" rx="3" fill="#0d1f14"/><text x="176" y="125" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" fill="#fff">K0</text><line x1="156" y1="120" x2="196" y2="120" stroke="#f97316" stroke-width="2"/>
+    <path d="M206 120 H248" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="252" y="106" width="52" height="28" rx="3" fill="#0d1f14"/><text x="278" y="125" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" fill="#fff">K1</text><line x1="258" y1="120" x2="298" y2="120" stroke="#f97316" stroke-width="2"/>
+    <path d="M308 120 H350" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="354" y="106" width="52" height="28" rx="3" fill="#0d1f14"/><text x="380" y="125" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" fill="#fff">K2</text><line x1="360" y1="120" x2="400" y2="120" stroke="#f97316" stroke-width="2"/>
+    <path d="M410 120 H452" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="456" y="106" width="52" height="28" rx="3" fill="#14603f"/><text x="482" y="125" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" fill="#fff">K3</text>
+    <text x="520" y="125" font-family="Inter, sans-serif" font-size="12" fill="#14603f">current</text>
+    <text x="128" y="156" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">Each included operation retires the previous key. The orange line is a key that is finished.</text>
+  </svg>
+</figure>
+<h3 id="why-now">Why build this now?</h3>
+<p>The risks around digital ownership are evolving. AI tools can help criminals create more believable messages, fraudulent sites, synthetic identities, and convincing impersonations at greater speed and scale. The FBI has specifically warned about generative AI being used for financial fraud and social engineering [1].</p>
+<p>No wallet can prevent someone from being tricked into approving a malicious transaction. And changing a spending key does not cancel dangerous permissions already granted to another smart contract. But it can remove one persistent weakness: an older, copied spending key no longer remains a permanent means of authorizing transactions after the key has rotated.</p>
+<p>Think of this as reducing how long a particular stolen key can remain useful, rather than promising that bad things can never happen. In a world where attempts to compromise people and devices are becoming easier to scale, reducing long-lived access is a practical design choice.</p>
+<h3 id="different">What makes KNOAD different?</h3>
+<table>
+  <thead><tr><th>Conventional self-custodial wallet</th><th>KNOAD Wallet</th></tr></thead>
+  <tbody>
+    <tr><td>Spending authorization is typically bound to a long-lived key.</td><td>A fresh spending key is installed after each qualifying included operation.</td></tr>
+    <tr><td>Replacing a compromised EOA key normally means moving assets to a new address.</td><td>The account address stays the same when the active spending key changes.</td></tr>
+    <tr><td>The user must handle the consequences of a long-lived key.</td><td>Rotation is part of the transaction workflow, not an extra task.</td></tr>
+    <tr><td>Recovery credentials and everyday spending authority are often the same underlying secret.</td><td>The 24-word recovery authority is separate from daily spending keys.</td></tr>
+  </tbody>
+</table>
+<p>Other smart-account wallets can change signers. KNOAD's particular choice is to make that replacement automatic after each qualifying operation, not to claim that no other wallet can ever rotate a key.</p>
+<h3 id="does">What KNOAD does — and what it doesn't</h3>
+<p>It does: retire old spending keys; keep the account address through rotations; separate recovery authority from ordinary spending; keep signing on the phone; allow a keyless browser relay for website connections; narrow a new token grant to the exact amount and a new NFT grant to one token; tell you when an older permission is still live; let you speed up or cancel a stuck send; and link Discord without handing it a key.</p>
+<p>It does not: make your phone immune to malware; reverse transactions an attacker already landed; erase token or NFT allowances that already exist; make a stolen 24-word phrase harmless; remove network fees; scan the chain for old approvals; or provide post-quantum cryptography.</p>
+<figure>
+  <figcaption>What the owner gets</figcaption>
+  <svg viewBox="0 0 720 168" role="img" aria-label="Owner protections beyond key rotation: per-chain protection, exact token allowances, single-NFT grants, a leftover-permission warning, stuck-send cleanup, and a keyless Discord link.">
+    <rect x="0" y="0" width="228" height="76" rx="6" fill="#14603f"/>
+    <text x="14" y="30" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#fff">Protected per chain</text>
+    <text x="14" y="52" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">Each chain has its own key.</text>
+    <rect x="246" y="0" width="228" height="76" rx="6" fill="#0d1f14"/>
+    <text x="260" y="30" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#fff">Exact ERC-20</text>
+    <text x="260" y="52" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">Not an unlimited allowance.</text>
+    <rect x="492" y="0" width="228" height="76" rx="6" fill="#14603f"/>
+    <text x="506" y="30" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#fff">One NFT</text>
+    <text x="506" y="52" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">Not the whole collection.</text>
+    <rect x="0" y="92" width="228" height="76" rx="6" fill="#0d1f14"/>
+    <text x="14" y="122" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#fff">Leftover perms</text>
+    <text x="14" y="144" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">Called out. Not erased.</text>
+    <rect x="246" y="92" width="228" height="76" rx="6" fill="#14603f"/>
+    <text x="260" y="122" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#fff">Stuck send</text>
+    <text x="260" y="144" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">Speed up or cancel.</text>
+    <rect x="492" y="92" width="228" height="76" rx="6" fill="#0d1f14"/>
+    <text x="506" y="122" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#fff">Discord link</text>
+    <text x="506" y="144" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">No key. No gas.</text>
+  </svg>
+</figure>
+<figure>
+  <figcaption>The boundary of the claim</figcaption>
+  <svg viewBox="0 0 720 132" role="img" aria-label="What rotation ends, what stays exposed, and what is out of scope.">
+    <rect x="0" y="0" width="228" height="124" rx="4" fill="#14603f"/>
+    <text x="16" y="28" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Ends</text>
+    <text x="16" y="56" font-family="Inter, sans-serif" font-size="13" fill="#e7f6ee">A retired spending key</text>
+    <text x="16" y="76" font-family="Inter, sans-serif" font-size="13" fill="#e7f6ee">cannot authorize the next</text>
+    <text x="16" y="96" font-family="Inter, sans-serif" font-size="13" fill="#e7f6ee">operation on that chain.</text>
+    <rect x="246" y="0" width="228" height="124" rx="4" fill="#0d1f14"/>
+    <text x="262" y="28" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Still exposed</text>
+    <text x="262" y="56" font-family="Inter, sans-serif" font-size="13" fill="#e7f6ee">The current key, a compromised</text>
+    <text x="262" y="76" font-family="Inter, sans-serif" font-size="13" fill="#e7f6ee">phone, and approvals</text>
+    <text x="262" y="96" font-family="Inter, sans-serif" font-size="13" fill="#e7f6ee">already granted.</text>
+    <rect x="492" y="0" width="228" height="124" rx="4" fill="#fff" stroke="#f97316" stroke-width="2"/>
+    <text x="508" y="28" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#f97316">Out of scope</text>
+    <text x="508" y="56" font-family="Inter, sans-serif" font-size="13" fill="#3d5c4c">A stolen recovery phrase,</text>
+    <text x="508" y="76" font-family="Inter, sans-serif" font-size="13" fill="#3d5c4c">contract defects, and</text>
+    <text x="508" y="96" font-family="Inter, sans-serif" font-size="13" fill="#3d5c4c">quantum attacks.</text>
+  </svg>
+</figure>
+
+<h2 id="part-2">Part II — How it works</h2>
+<h3 id="glance">1. The system at a glance</h3>
+<p>KNOAD deliberately separates the part that holds assets from the part that signs today. A smart account controls assets and records which spending key is currently allowed to authorize transactions. The phone creates and holds signing keys, prepares transactions, and presents approval screens. A browser extension relays website sessions to the phone but never holds the wallet's keys. An optional quote service fetches swap and bridge prices; it has no authority to sign or recover the account.</p>
+<figure>
+  <figcaption>Who holds what / where trust stops</figcaption>
+  <svg viewBox="0 0 720 210" role="img" aria-label="The phone holds the key. The extension and quote service connect without one. The smart account is on chain.">
+    <rect x="8" y="24" width="230" height="170" rx="8" fill="#0d1f14"/>
+    <text x="24" y="50" font-family="Sora, sans-serif" font-size="16" font-weight="600" fill="#fff">Phone</text>
+    <text x="24" y="72" font-family="Inter, sans-serif" font-size="12" fill="#3dd68c">The only place a key lives</text>
+    <rect x="24" y="88" width="198" height="86" rx="6" fill="#14603f"/>
+    <text x="36" y="114" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#fff">Browser</text>
+    <text x="36" y="136" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">Pages open here.</text>
+    <text x="36" y="154" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">Signing stays on the sheet.</text>
+    <rect x="268" y="58" width="200" height="102" rx="8" fill="#14603f"/>
+    <text x="284" y="88" font-family="Sora, sans-serif" font-size="15" font-weight="600" fill="#fff">Smart account</text>
+    <text x="284" y="112" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">On chain. Holds assets.</text>
+    <text x="284" y="132" font-family="Inter, sans-serif" font-size="12" fill="#e7f6ee">No company admin key.</text>
+    <line x1="238" y1="109" x2="268" y2="109" stroke="#3dd68c" stroke-width="2"/>
+    <rect x="500" y="18" width="208" height="72" rx="8" fill="#fff" stroke="#14603f" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="516" y="46" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#0d1f14">Extension</text>
+    <text x="516" y="68" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">Relay. No key.</text>
+    <line x1="238" y1="54" x2="500" y2="54" stroke="#14603f" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <rect x="500" y="122" width="208" height="72" rx="8" fill="#fff" stroke="#14603f" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="516" y="150" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#0d1f14">Quote service</text>
+    <text x="516" y="172" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">Prices. No key.</text>
+    <line x1="238" y1="158" x2="500" y2="158" stroke="#14603f" stroke-width="1.5" stroke-dasharray="5 4"/>
+  </svg>
+</figure>
+<p>The account and factory hold the assets and do not store the phrase. They have no Cronosynthesis administrator key. The extension can learn the address and cannot sign. The quote service is untrusted; the phone checks the route before it will sign. The account uses ERC-4337 through EntryPoint v0.9 for spending. Recovery is a separate direct onchain transaction. Rotating on one chain does not retire the key on another.</p>
+<p>Also on the phone: an ENS name resolves when you send, NFTs held on Ethereum and Base can be read, and biometric unlock opens the device vault without being the 24 words. A site pairs through WalletConnect. The extension only relays that pairing. Pages opened in the phone's browser still sign on the phone's approval sheet, so the browser is not a fifth party. Discord links from Settings through knoad.io. That link cannot sign or recover.</p>
+
+<h3 id="transaction">2. The transaction that changes the key</h3>
+<p>Here is the engine of the wallet. The order matters because a failure in one stage must not be mistaken for success in another.</p>
+<figure>
+  <figcaption>A single operation / five distinct stages</figcaption>
+  <svg viewBox="0 0 720 188" role="img" aria-label="Save, sign, include, rotate, then execute. The key rotates before the calls. No inclusion means no rotation.">
+    <rect x="0" y="28" width="112" height="64" rx="6" fill="#0d1f14"/>
+    <text x="56" y="52" text-anchor="middle" font-family="Sora, sans-serif" font-size="11" fill="#3dd68c">01</text>
+    <text x="56" y="70" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Save</text>
+    <path d="M116 60 H132" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="136" y="28" width="112" height="64" rx="6" fill="#0d1f14"/>
+    <text x="192" y="52" text-anchor="middle" font-family="Sora, sans-serif" font-size="11" fill="#3dd68c">02</text>
+    <text x="192" y="70" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Sign</text>
+    <path d="M252 60 H268" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="272" y="28" width="112" height="64" rx="6" fill="#0d1f14"/>
+    <text x="328" y="52" text-anchor="middle" font-family="Sora, sans-serif" font-size="11" fill="#3dd68c">03</text>
+    <text x="328" y="70" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Include</text>
+    <path d="M388 60 H404" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="408" y="28" width="112" height="64" rx="6" fill="#14603f"/>
+    <text x="464" y="52" text-anchor="middle" font-family="Sora, sans-serif" font-size="11" fill="#3dd68c">04</text>
+    <text x="464" y="70" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Rotate</text>
+    <path d="M524 52 H548" stroke="#3dd68c" stroke-width="2"/>
+    <text x="536" y="24" text-anchor="middle" font-family="Sora, sans-serif" font-size="11" fill="#14603f">Rotated</text>
+    <rect x="552" y="28" width="112" height="64" rx="6" fill="#0d1f14"/>
+    <text x="608" y="52" text-anchor="middle" font-family="Sora, sans-serif" font-size="11" fill="#3dd68c">05</text>
+    <text x="608" y="70" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Execute</text>
+    <path d="M328 92 V114 H120" stroke="#f97316" stroke-width="1.5" fill="none"/>
+    <rect x="0" y="114" width="228" height="30" rx="4" fill="#fff" stroke="#f97316" stroke-width="1.5"/>
+    <text x="114" y="134" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#f97316">No inclusion, no rotation</text>
+    <text x="248" y="128" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">Next key is saved before the signature.</text>
+    <text x="248" y="146" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">The signature binds the action and that key.</text>
+    <text x="0" y="174" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">A bundler's acknowledgment is not inclusion. While the operation is pending, the old key is still current.</text>
+  </svg>
+</figure>
+<table>
+  <thead><tr><th>Event</th><th>Has the spending key rotated?</th><th>Did the requested payment succeed?</th></tr></thead>
+  <tbody>
+    <tr><td>Signed, but not included</td><td>No</td><td>No onchain execution yet</td></tr>
+    <tr><td>Included; validation failed</td><td>No</td><td>No</td></tr>
+    <tr><td>Included; validation succeeded; execution reverted</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Included; validation succeeded; execution succeeded</td><td>Yes</td><td>Yes</td></tr>
+  </tbody>
+</table>
+<p class="aside">Saying every successful payment rotates is wrong in the most pedantic, important way: a payment that fails still retires the key.</p>
+<h3 id="state">A small state model</h3>
+<p>Let K[c,g] be the currently authorized spending key on chain c at generation g. Let N be the next spending key committed by a valid signed operation, and let A be its requested calls.</p>
+<p class="eq">ValidIncludedOp(c,g,K[c,g],N,A) =&gt; K[c,g+1] := N ; generation[c] := g+1 ; then execute(A)</p>
+<p>If validation fails or the operation never lands, K[c,g] remains authorized. If execution reverts after valid inclusion, the transition to K[c,g+1] still stands. This is a conceptual state equation, not contract source code.</p>
+<p>The account uses one transaction lane. Two conflicting candidate next keys cannot be sent as independent concurrent operations with the same sequence. A pending operation may instead be replaced with a higher-fee version or cancelled using the same previously saved next key. Activity offers both. Settings can prepare the higher-fee replacement after 15 minutes, and the owner still approves it. A key refresh is an operation with an empty execution payload and still rotates; an encoded batch containing zero calls is rejected. Ordinary batches contain at most eight calls, and arbitrary self-calls into the account are restricted.</p>
+
+<h3 id="chains">3. One wallet, separate chain state</h3>
+<p>A single recovery identity determines a stable smart-account address across the currently listed networks. That shared address is a convenience. It is not the security mechanism.</p>
+<figure>
+  <figcaption>Shared account identity / independent spending keys</figcaption>
+  <svg viewBox="0 0 720 176" role="img" aria-label="One address. Chain A rotates through four keys. Chain B is still waiting on its own inclusion.">
+    <rect x="0" y="0" width="720" height="28" rx="4" fill="#14603f"/>
+    <text x="16" y="19" font-family="Sora, sans-serif" font-size="13" fill="#fff">Same address</text>
+    <text x="0" y="56" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#0d1f14">Chain A</text>
+    <rect x="110" y="38" width="48" height="26" rx="3" fill="#0d1f14"/><text x="134" y="56" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#fff">K0</text><line x1="116" y1="51" x2="152" y2="51" stroke="#f97316" stroke-width="2"/>
+    <path d="M162 51 H186" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="190" y="38" width="48" height="26" rx="3" fill="#0d1f14"/><text x="214" y="56" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#fff">K1</text><line x1="196" y1="51" x2="232" y2="51" stroke="#f97316" stroke-width="2"/>
+    <path d="M242 51 H266" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="270" y="38" width="48" height="26" rx="3" fill="#0d1f14"/><text x="294" y="56" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#fff">K2</text><line x1="276" y1="51" x2="312" y2="51" stroke="#f97316" stroke-width="2"/>
+    <path d="M322 51 H346" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="350" y="38" width="48" height="26" rx="3" fill="#14603f"/><text x="374" y="56" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#fff">K3</text>
+    <text x="412" y="56" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">three later operations included</text>
+    <text x="0" y="118" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#0d1f14">Chain B</text>
+    <rect x="110" y="100" width="48" height="26" rx="3" fill="#14603f"/><text x="134" y="118" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#fff">K0</text>
+    <line x1="166" y1="113" x2="250" y2="113" stroke="#c5d5cb" stroke-width="2" stroke-dasharray="4 4"/>
+    <rect x="254" y="100" width="48" height="26" rx="3" fill="#fff" stroke="#c5d5cb" stroke-width="1.5"/><text x="278" y="118" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#8aa396">K1</text>
+    <text x="316" y="118" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">waiting on this chain's own inclusion</text>
+    <text x="0" y="162" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">A signature on Chain A does not publish, or retire, the key on Chain B.</text>
+  </svg>
+</figure>
+<p>A separate initial spending key is derived for each supported chain. A newly used chain can receive assets before the account contract is deployed there. Its first key is installed only through a chain-specific activation signed by the original recovery authority.</p>
+<p>The phone's registry names Ethereum, Base, Sepolia, and Base Sepolia. Addresses are in Appendix B. The factory, verifier, and account implementation are broadcast on all four, and the runtime code matches this tree. Recovery has been included on Sepolia and Base Sepolia. Ethereum and Base have the bytecode and have not had a recovery included. BNB Smart Chain, Arbitrum, Robinhood Chain, Monad, and ApeChain are registered and not deployed. The phone does not advertise them.</p>
+
+<h3 id="recovery">4. Recovering the wallet — without creating a company back door</h3>
+<p>Your 24-word recovery phrase is the way to regain control if your phone is lost or the active spending key becomes unavailable. It is not the key the phone uses for everyday transactions. KNOAD does not retain the phrase and cannot recover it for you. The words are entered once and then cleared. They are not saved. Secure all networks is optional. Anyone can pay a chain's fee. The spending key cannot take recovery, the verifier, or an upgrade for itself.</p>
+<figure>
+  <figcaption>Recovery remains in the owner's hands</figcaption>
+  <svg viewBox="0 0 720 150" role="img" aria-label="The old phone can still spend, shown in orange, until the chain includes the recovery switch.">
+    <rect x="70" y="28" width="470" height="28" rx="3" fill="#fff3e8" stroke="#f97316" stroke-width="1.5"/>
+    <text x="305" y="47" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#f97316">Old phone can still spend</text>
+    <line x1="40" y1="78" x2="680" y2="78" stroke="#0d1f14" stroke-width="2"/>
+    <circle cx="90" cy="78" r="7" fill="#0d1f14"/>
+    <text x="90" y="108" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#0d1f14">24 words</text>
+    <text x="90" y="126" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#3d5c4c">offline, yours</text>
+    <circle cx="250" cy="78" r="7" fill="#0d1f14"/>
+    <text x="250" y="108" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#0d1f14">New phone</text>
+    <text x="250" y="126" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#3d5c4c">derives authority</text>
+    <circle cx="420" cy="78" r="7" fill="#0d1f14"/>
+    <text x="420" y="108" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#0d1f14">Recovery tx</text>
+    <text x="420" y="126" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#3d5c4c">anyone may pay</text>
+    <circle cx="600" cy="78" r="8" fill="#14603f"/>
+    <text x="600" y="108" text-anchor="middle" font-family="Sora, sans-serif" font-size="12" fill="#14603f">Included</text>
+    <text x="600" y="126" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#14603f">old phone stops</text>
+    <text x="40" y="18" font-family="Inter, sans-serif" font-size="12" fill="#3d5c4c">The orange stretch is the race. What lands first is what stays moved.</text>
+  </svg>
+</figure>
+<p>On a replacement phone, the user enters the phrase, derives the recovery authority, and can locate the wallet and inspect readable chains without an onchain transaction. The phone prepares chain-specific recovery steps. Each chain must accept its recovery steps in order, and the previous phone can still spend there until that chain actually includes the switch.</p>
+<p>Recovery is a direct transaction: a separate account can pay the network fee, even if the KNOAD account has no ETH. A chain that has not yet deployed the account may require special first-use handling. Whoever lands a valid first use or recovery first controls the immediate result; a stolen device can race the owner. This is a real timing risk, not a footnote to hide.</p>
+<table>
+  <thead><tr><th>Situation</th><th>Designed response</th><th>Remaining risk</th></tr></thead>
+  <tbody>
+    <tr><td>Phone lost, phrase safe</td><td>Default instant recovery installs a new spending key on each recovered chain.</td><td>Old phone remains capable until each chain accepts its switch.</td></tr>
+    <tr><td>Phrase stolen, phone safe</td><td>Owner may optionally configure a recovery delay and current-key veto.</td><td>The thief can still attempt recovery; without a configured delay, exposure is urgent.</td></tr>
+    <tr><td>Phrase and phone stolen</td><td>Recovery can be contested.</td><td>A delay plus veto can create a deadlock.</td></tr>
+    <tr><td>Upgrade wanted</td><td>Recovery-signed, codehash-checked upgrade with a minimum seven-day wait.</td><td>Malicious recovery authority still matters; not an instant defense.</td></tr>
+  </tbody>
+</table>
+<p>The default recovery delay is off, because a mandatory wait can make a lost-phone emergency worse. Tightening spending policy can apply immediately with recovery authority; loosening policy is subject to the configured wait and veto process. The everyday spending key cannot replace the recovery authority, change the verifier, or schedule an implementation upgrade.</p>
+
+<h3 id="not-revoke">5. What key rotation does not revoke</h3>
+<p class="aside">Rotation changes your locks. It does not take back the spare key you already handed the neighbor.</p>
+<figure>
+  <figcaption>What rotation revokes / what persists</figcaption>
+  <svg viewBox="0 0 720 128" role="img" aria-label="Rotation ends the old spending key and the login signature. Token allowances and NFT operators stay until revoked in their own contracts.">
+    <text x="0" y="18" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#14603f">Ends</text>
+    <rect x="0" y="30" width="340" height="36" rx="4" fill="#14603f"/>
+    <text x="14" y="53" font-family="Inter, sans-serif" font-size="13" fill="#fff">Old spending key. No new authorization.</text>
+    <rect x="0" y="74" width="340" height="36" rx="4" fill="#14603f"/>
+    <text x="14" y="97" font-family="Inter, sans-serif" font-size="13" fill="#fff">Login signature. The current-key check fails.</text>
+    <text x="380" y="18" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#f97316">Stays until revoked elsewhere</text>
+    <rect x="380" y="30" width="340" height="36" rx="4" fill="#fff" stroke="#f97316" stroke-width="1.5"/>
+    <text x="394" y="53" font-family="Inter, sans-serif" font-size="13" fill="#0d1f14">Token allowance, in the token contract.</text>
+    <rect x="380" y="74" width="340" height="36" rx="4" fill="#fff" stroke="#f97316" stroke-width="1.5"/>
+    <text x="394" y="97" font-family="Inter, sans-serif" font-size="13" fill="#0d1f14">NFT operator, in the NFT contract.</text>
+  </svg>
+</figure>
+<ul>
+  <li>An approved spender may still move funds without a new KNOAD signature. Disconnecting a website does not remove that, and reading an NFT on the home screen does not either.</li>
+  <li>An ordinary login signature is checked against the current key and generally stops validating after rotation under the documented ERC-7739 flow.</li>
+  <li>An explicit marketplace order grant can remain valid across rotations if it was registered with a named caller and an expiry. Recovery ends the grant by advancing the security epoch. Marketplace acceptance has not yet been demonstrated.</li>
+</ul>
+<p>Rotation still does not erase a grant that already lives in a token or NFT contract. The phone says so in Security Center, and again after a rotation, a disconnect, or a new grant. It does not scan those contracts or revoke them for you. A new site grant is narrowed before it is signed. An unlimited ERC-20 approve becomes the exact amount spent in that same transaction, or the phone refuses it. A collection-wide NFT operator grant becomes approval of one token id when that id is in the batch or is the only one of that contract held on the phone, or the phone refuses it. Sending an NFT from the home screen already moves that one token. The account's creation policy still allows a maximum approve, because turning that switch on at creation would change the address. The phone's default does not.</p>
+
+<h3 id="trading">6. The optional trading layer</h3>
+<p>The wallet's core and the optional commerce features have different dependencies. Creating, receiving, sending, recovering, rotating, managing permissions, and pairing a site do not incur a KNOAD service fee. Normal network gas still applies. Swaps and bridges may carry a clearly displayed KNOAD fee.</p>
+<figure>
+  <figcaption>Optional swaps / bridges / verification before signing</figcaption>
+  <svg viewBox="0 0 720 118" role="img" aria-label="A quote is checked by the phone, then signed and sent as a swap or bridge.">
+    <rect x="0" y="28" width="130" height="52" rx="6" fill="#0d1f14"/>
+    <text x="65" y="50" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Quote</text>
+    <text x="65" y="68" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#e7f6ee">0x or LI.FI</text>
+    <path d="M134 54 H158" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="162" y="28" width="150" height="52" rx="6" fill="#14603f"/>
+    <text x="237" y="50" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Phone checks</text>
+    <text x="237" y="68" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#e7f6ee">route, spender, amount</text>
+    <path d="M316 54 H340" stroke="#14603f" stroke-width="1.5"/>
+    <rect x="344" y="28" width="130" height="52" rx="6" fill="#0d1f14"/>
+    <text x="409" y="50" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Preview</text>
+    <text x="409" y="68" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#e7f6ee">fee and output</text>
+    <path d="M478 54 H502" stroke="#3dd68c" stroke-width="2"/>
+    <rect x="506" y="18" width="206" height="72" rx="6" fill="#14603f"/>
+    <text x="609" y="48" text-anchor="middle" font-family="Sora, sans-serif" font-size="14" font-weight="600" fill="#fff">Sign and send</text>
+    <text x="609" y="68" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" fill="#e7f6ee">Swap or bridge</text>
+  </svg>
+</figure>
+<p>A same-chain swap obtains candidate routes through 0x providers; a bridge uses LI.FI. The phone does not blindly trust the quote server. It verifies approved destinations, exact token approvals, intended receiver, token amounts, minimum output where readable, slippage, and route structure. For 0x, the Settler is checked against the provider's onchain registry; Permit2 and permit-style routes are refused. The phone rejects routes it cannot recognize and prechecks optional spending policy.</p>
+<table>
+  <thead><tr><th>Commerce rule</th><th>Current documented behavior</th></tr></thead>
+  <tbody>
+    <tr><td>KNOAD fee</td><td>0.25% default on an optional swap or bridge; capped at 0.30%</td></tr>
+    <tr><td>No configured recipient</td><td>KNOAD fee is zero</td></tr>
+    <tr><td>Comparison</td><td>Prefer the higher minimum received; when within 0.1%, lower network fee wins</td></tr>
+    <tr><td>Quote validity</td><td>Refetch after 30 seconds or the provider deadline; signed calls must match displayed calls</td></tr>
+    <tr><td>Approvals</td><td>Exact input amount to the intended provider; no unlimited commerce approval</td></tr>
+  </tbody>
+</table>
+<p>Live swap and bridge submit after those checks. Commerce follows the same exact-approve rule: the allowance is the amount being sold, not an unlimited grant. Some LI.FI destination-side minimum or receiver details are still not fully readable from shared bridge data. Buy / Sell and listings stay inactive. The home screen can read NFTs held on Ethereum and Base. That read is not a trade.</p>
+
+<h3 id="gone">7. If Cronosynthesis disappeared</h3>
+<p class="aside">If Cronosynthesis disappeared, your wallet would be the only thing in the building still working.</p>
+<p>KNOAD is designed so the company does not have an administrator key to freeze an account, replace its signer, or upgrade its code. The published factory and recovery design make address computation independent of a KNOAD index. Another bundler can submit a signed operation; a recovery can be submitted by anyone willing to pay its gas.</p>
+<p>Linking Discord is a perk, not a key. From Settings, Continue with Discord returns through knoad.io. The phone signs a verification message: no gas, and no token approval. A participating server can then recognize the wallet for a role. The link cannot sign, recover, or upgrade. If it disappeared with the company, the account on chain would be unchanged.</p>
+<p>The company-run quote service is an optional dependency: if it vanished, swap and bridge pricing would stop, while basic sends, recovery, and phone-mediated pairing are designed to remain possible.</p>
+
+<h3 id="protects">8. What this design protects against — and what it doesn't</h3>
+<p>The boundary drawn in Part I is the whole claim. Reduced risk is an old key after its retirement. Still exposed are the current key, a compromised phone, and approvals already granted. Out of scope are a stolen recovery phrase, contract defects, and quantum attacks.</p>
+<p>AI makes the social layer of security harder, not easier. KNOAD does not pretend otherwise. A convincing phishing prompt can still trick a person into signing a harmful current transaction. A compromised phone can steal while it controls the current key. A stolen recovery phrase can reclaim the account. Previously granted allowances can outlive all rotations.</p>
+<p>Where the design helps is narrower and meaningful: once a chain processes the valid transition, a previous spending key is no longer a standing authorization for future spending on that chain. The phone also narrows the next grant a site can receive: the exact token amount in that transaction, or one NFT, and it refuses the unlimited and collection-wide versions. That's a reduction in persistent exposure, not a substitute for device hygiene, permission management, recovery-phrase protection, contract review, or careful signing.</p>
+<h3 id="quantum">Quantum reality check</h3>
+<p class="aside">Rotation is many things. Post-quantum is not one of them.</p>
+<p>KNOAD presently uses conventional elliptic-curve cryptography (secp256k1 and P-256). Key rotation is not post-quantum cryptography. NIST identifies elliptic-curve systems among the cryptographic systems threatened by a sufficiently capable quantum computer [2]. KNOAD's recovery-controlled verifier upgrade path leaves a potential route for future algorithm changes, but it does not mean a quantum-resistant verifier has been built, audited, or shipped.</p>
+
+<h2 id="part-3">Part III — Engineering reference</h2>
+<h3 id="derivation">9. Authorizations, derivation, and address identity</h3>
+<p>The account's address is independent of the active hot signing key. The account is created through a deterministic factory using the original recovery authority, account index, and hash of the initial creation policy. In conceptual terms:</p>
+<p class="eq">SALT = H(originalRecoveryAddress, accountIndex, H(initialPolicy))<br>ACCOUNT = CREATE2(factory, SALT, H(proxyInitCode))</p>
+<p>The actual address also depends on the published factory, implementation, and proxy initialization construction. These lines describe the dependency structure, not a byte-for-byte drop-in address calculator. The first active spending key is deliberately absent from the address derivation.</p>
+<table class="keep">
+  <thead><tr><th>Secret / use</th><th>Derivation or behavior</th></tr></thead>
+  <tbody>
+    <tr><td>Human backup</td><td>24-word BIP-39 mnemonic with an empty BIP-39 passphrase in this build</td></tr>
+    <tr><td>Recovery at epoch e, account a</td><td>m/7331'/60'/a'/0'/e'</td></tr>
+    <tr><td>Initial chain key, account a, chain chainId</td><td>m/7331'/60'/a'/1'/&lt;chainId&gt;'</td></tr>
+    <tr><td>Later spending keys</td><td>Fresh random device-bound keys where hardware support allows; not derived from the mnemonic</td></tr>
+    <tr><td>Device app password</td><td>Unlocks and encrypts the phone vault, including by biometric unlock where the device offers it. It is not recovery material.</td></tr>
+  </tbody>
+</table>
+<p>The one-time initial hot key uses secp256k1. Later device-bound keys may use Secure Enclave or StrongBox facilities when supported and may be nonexportable. The phone uses account index zero in the source implementation. A BIP-39 passphrase cannot be added later without changing the derived account; the current UI does not collect one.</p>
+<p>Recovery epochs are read from chain state. The device does not need to guess or scan recovery indices. The first-use activation is signed for a specific chain and becomes unusable once that chain's account is deployed. If a compatible account already exists, the factory returns it without replacing its active key.</p>
+
+<h3 id="authority">10. Contract behavior by authority</h3>
+<table>
+  <thead><tr><th>Operation</th><th>Who can authorize it?</th><th>Result / restriction</th></tr></thead>
+  <tbody>
+    <tr><td>executeAndRotate</td><td>Current hot signer through EntryPoint</td><td>Valid inclusion installs the next signer before permitted calls execute.</td></tr>
+    <tr><td>Empty-payload key refresh</td><td>Current hot signer through EntryPoint</td><td>Rotates without executing calls.</td></tr>
+    <tr><td>vetoRecovery</td><td>Current hot signer</td><td>Vetoes a pending delayed recovery or loosening, and rotates.</td></tr>
+    <tr><td>recover</td><td>Recovery authority</td><td>Replaces the hot signer immediately or schedules a delayed replacement; replay-protected.</td></tr>
+    <tr><td>setPolicy</td><td>Recovery authority</td><td>Tightening is immediate; loosening is subject to delay and veto.</td></tr>
+    <tr><td>approveOrderDigest / revokeOrderDigest</td><td>Permitted account self-call path</td><td>Register or revoke one caller-bound ERC-1271 order digest.</td></tr>
+    <tr><td>scheduleUpgrade</td><td>Recovery authority</td><td>Schedules a codehash-bound implementation change after at least 7 days.</td></tr>
+    <tr><td>cancelUpgrade</td><td>Recovery authority</td><td>Cancels a pending change with an authorized signature.</td></tr>
+    <tr><td>executeUpgrade</td><td>Pending scheduled path</td><td>Rechecks the implementation codehash.</td></tr>
+  </tbody>
+</table>
+<p>Generic execute and arbitrary account self-calls are restricted; initialization directly on the implementation reverts. The contract accepts standard ERC-721 and ERC-1155 receiver hooks. The account has one sequence lane; the phone must preserve the saved next key when speeding up or cancelling a pending operation. These are the intended behaviors described in the source paper, not an independent audit finding.</p>
+<pre>phone:
+  nextKey = generate_and_save(expectedGeneration + 1)
+  userOp = bind(requestedCalls, nextKey, expectedGeneration, chainId)
+  signature = sign(currentKey, userOp)
+  submit(userOp, signature)
+
+account validation (if included):
+  require(signature matches currentKey)
+  require(generation/nonce matches)
+  require(nextKey is permitted and nonzero)
+  currentKey = nextKey
+  generation += 1
+
+execution:
+  run requestedCalls   # may revert after rotation</pre>
+<p>This is illustrative pseudocode. It omits ERC-4337 calldata encoding, signature domains, transaction gas accounting, internal operation binding, and contract-specific revert paths. Consult Spec 1.4 and the source code for authoritative implementation behavior.</p>
+
+<h3 id="gas">11. Gas and execution evidence</h3>
+<p>Local Foundry/Forge runs, compiled with Solidity 0.8.28 and optimizer 200 against EntryPoint v0.9. The figures include test harness overhead and are not mainnet gas quotes.</p>
+<figure>
+  <figcaption>Local Forge gas measurements / not mainnet quotes</figcaption>
+  <div class="gas">
+    <article><span>Create account</span><strong>223,447</strong></article>
+    <article><span>Send ETH and rotate</span><strong>194,768</strong></article>
+    <article><span>Direct recovery</span><strong>28,417</strong></article>
+  </div>
+</figure>
+<p class="note">Compiler: solc 0.8.28. Optimizer: 200. EntryPoint: v0.9. Test harness included. Network gas prices, sponsorship, deployment, and calldata will change what a person actually pays. There is no paymaster in this version. A recovery can be paid by any outside account, but that does not mean KNOAD pays the fee.</p>
+
+<h3 id="evidence">12. Evidence, limitations, and release gates</h3>
+<p class="aside">Ladders are only useful if you admit which rungs are missing.</p>
+<figure>
+  <figcaption>Evidence is a ladder, not a single checkmark</figcaption>
+  <svg viewBox="0 0 720 228" role="img" aria-label="Filled rungs for implementation, local tests, bytecode, testnet recovery, and live swap and bridge. The independent audit is the open rung. The gate sits above them.">
+    <rect x="16" y="4" width="120" height="26" rx="3" fill="none" stroke="#f97316" stroke-width="2"/>
+    <text x="76" y="22" text-anchor="middle" font-family="Sora, sans-serif" font-size="13" font-weight="600" fill="#f97316">Gate</text>
+    <text x="150" y="22" font-family="Inter, sans-serif" font-size="13" fill="#0d1f14">Outside review, before assets of value.</text>
+    <line x1="40" y1="38" x2="40" y2="214" stroke="#0d1f14" stroke-width="3"/>
+    <line x1="92" y1="38" x2="92" y2="214" stroke="#0d1f14" stroke-width="3"/>
+    <line x1="28" y1="52" x2="104" y2="52" stroke="#c5d5cb" stroke-width="5" stroke-dasharray="5 4"/>
+    <text x="120" y="57" font-family="Sora, sans-serif" font-size="13" fill="#8aa396">Independent audit — open</text>
+    <line x1="28" y1="84" x2="104" y2="84" stroke="#14603f" stroke-width="6"/>
+    <text x="120" y="89" font-family="Sora, sans-serif" font-size="13" fill="#0d1f14">Live swap and bridge</text>
+    <line x1="28" y1="116" x2="104" y2="116" stroke="#14603f" stroke-width="6"/>
+    <text x="120" y="121" font-family="Sora, sans-serif" font-size="13" fill="#0d1f14">Recovery included on Sepolia and Base Sepolia</text>
+    <line x1="28" y1="148" x2="104" y2="148" stroke="#14603f" stroke-width="6"/>
+    <text x="120" y="153" font-family="Sora, sans-serif" font-size="13" fill="#0d1f14">Bytecode on Ethereum, Base, Sepolia, and Base Sepolia</text>
+    <line x1="28" y1="180" x2="104" y2="180" stroke="#14603f" stroke-width="6"/>
+    <text x="120" y="185" font-family="Sora, sans-serif" font-size="13" fill="#0d1f14">Tested locally — Foundry and Anvil</text>
+    <line x1="28" y1="212" x2="104" y2="212" stroke="#14603f" stroke-width="6"/>
+    <text x="120" y="217" font-family="Sora, sans-serif" font-size="13" fill="#0d1f14">Implemented — account, phone, and extension</text>
+  </svg>
+</figure>
+<table>
+  <thead><tr><th>Evidence the ladder does not show</th><th>Status as of 21 October 2026</th></tr></thead>
+  <tbody>
+    <tr><td>Local Foundry suite</td><td>Passing without a fork URL.</td></tr>
+    <tr><td>P-256 check</td><td>Forge check. Excluded from the cited Anvil scenario because its precompile was unavailable there.</td></tr>
+    <tr><td>Recorded Foundry fork of a live swap</td><td>Not in the cited local suite. Swap and bridge run on the phone.</td></tr>
+    <tr><td>Commerce transaction submission</td><td>On. A checked swap or bridge is signed and sent.</td></tr>
+  </tbody>
+</table>
+<p>Release posture: this design may be promising, but project-authored tests are not an external security audit. Contracts described here are not cleared to hold assets of value. Marketing should not imply otherwise.</p>
+
+<h3 id="threats">13. Threat register — representative failure modes</h3>
+<table>
+  <thead><tr><th>Threat</th><th>Designed mitigation</th><th>Residual exposure</th></tr></thead>
+  <tbody>
+    <tr><td>An old spending key leaks</td><td>Included key rotation makes it invalid on that chain.</td><td>The current key may be exploited before the next inclusion. Other chains are independent.</td></tr>
+    <tr><td>Phone compromise</td><td>Device-bound keys where available; off-page phone approval; recovery authority is separate.</td><td>Malware controlling the live phone can still authorize theft, and may follow future keys.</td></tr>
+    <tr><td>Phrase compromised</td><td>The owner may enable delayed recovery and a hot-key veto.</td><td>The phrase controls recovery. Instant default recovery leaves no automatic veto.</td></tr>
+    <tr><td>Pending operation stuck</td><td>Replace or cancel at the same nonce using the saved next signer.</td><td>No inclusion means no rotation. Censorship can prevent inclusion.</td></tr>
+    <tr><td>Token or NFT permission abuse</td><td>The phone narrows a new unlimited token approve to the amount in that transaction, and a collection grant to one token id, or it refuses the request. Commerce uses the exact sell amount.</td><td>Old approvals remain. The phone does not scan or revoke them. An unfamiliar spend function can still get through.</td></tr>
+    <tr><td>Key update interrupted by a crash</td><td>Persist the next signer before signing.</td><td>Lost local state may still require phrase recovery.</td></tr>
+    <tr><td>First use on an undeployed chain</td><td>Chain-bound recovery authorization is required for the initial signer.</td><td>Whoever lands a valid activation or recovery first can win. A token-only chain may need outside gas.</td></tr>
+    <tr><td>Quote service compromised</td><td>The phone independently validates pinned contracts, the route, the spender, and the amount.</td><td>Bad pricing or service loss remains possible. Bridge destination checks are incomplete.</td></tr>
+    <tr><td>Malicious implementation update</td><td>Only recovery authorization, a wait of at least 7 days, and a codehash recheck.</td><td>Stolen recovery authority can schedule an upgrade. There is no company pause key.</td></tr>
+    <tr><td>Future cryptographic breakthrough</td><td>A recovery-controlled verifier upgrade path may support migration.</td><td>Current signatures are not quantum resistant, and migration is not implemented.</td></tr>
+  </tbody>
+</table>
+
+<h3 id="continuity">14. Continuity and dependency model</h3>
+<p>A self-custodial architecture does not guarantee uninterrupted RPC access, bundler participation, or correct third-party tooling. An unrecoverable bug in the recovery path could defeat the model. There is no company-wide emergency pause switch.</p>
+
+<h2 id="appendices" class="cont">Appendices</h2>
+<h3 id="glossary">Appendix A — Plain-English glossary</h3>
+<table>
+  <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td>Smart account</td><td>An onchain contract account that holds assets and checks authorization rules.</td></tr>
+    <tr><td>Spending key / hot signer</td><td>The currently authorized key used for everyday operations on one chain.</td></tr>
+    <tr><td>Recovery authority</td><td>The separate owner-controlled identity derived from the 24-word phrase.</td></tr>
+    <tr><td>Rotation</td><td>Replacing the active spending key and retiring the previous one.</td></tr>
+    <tr><td>Generation</td><td>The account's transaction sequence for hot operations.</td></tr>
+    <tr><td>Inclusion</td><td>The chain accepted the operation. Not the same as a bundler receiving it.</td></tr>
+    <tr><td>Validation</td><td>The account and EntryPoint accept its authorization and nonce.</td></tr>
+    <tr><td>Execution</td><td>The requested calls run. They may fail even if validation and rotation succeed.</td></tr>
+    <tr><td>Bundler</td><td>An ERC-4337 participant that packages UserOperations for inclusion.</td></tr>
+    <tr><td>Approval</td><td>Permission recorded in a token or NFT contract. Key rotation does not revoke it.</td></tr>
+    <tr><td>Quote</td><td>A proposed trade or bridge route checked before any signature or submission.</td></tr>
+  </tbody>
+</table>
+
+<h3 id="networks">Appendix B — Supported networks and published development values</h3>
+<p>Not cleared for assets of value. Addresses as broadcast on 21 October 2026.</p>
+<table>
+  <thead><tr><th>Item</th><th>Documented value</th></tr></thead>
+  <tbody>
+    <tr><td>Ethereum</td><td>Chain ID 1. Broadcast. Recovery not included.</td></tr>
+    <tr><td>Base</td><td>Chain ID 8453. Broadcast. Recovery not included.</td></tr>
+    <tr><td>Sepolia</td><td>Chain ID 11155111. Broadcast. Recovery included.</td></tr>
+    <tr><td>Base Sepolia</td><td>Chain ID 84532. Broadcast. Recovery included.</td></tr>
+    <tr><td>BNB Smart Chain</td><td>Chain ID 56. Registered, not deployed. Not on the phone.</td></tr>
+    <tr><td>Arbitrum</td><td>Chain ID 42161. Registered, not deployed. Not on the phone.</td></tr>
+    <tr><td>Robinhood Chain</td><td>Chain ID 4663. Registered, not deployed. Not on the phone.</td></tr>
+    <tr><td>Monad</td><td>Chain ID 143. Registered, not deployed. Not on the phone.</td></tr>
+    <tr><td>ApeChain</td><td>Chain ID 33139. Registered, not deployed. Not on the phone.</td></tr>
+    <tr><td>EntryPoint v0.9</td><td class="addr">0x433709009B8330FDa32311DF1C2AFA402eD8D009</td></tr>
+    <tr><td>Recovery verifier</td><td class="addr">0x39305881423DC27C6238bE3A343787772534e764</td></tr>
+    <tr><td>Factory</td><td class="addr">0x640b63604581cC0b1326025a57C188BCc6160Dc9</td></tr>
+    <tr><td>Implementation</td><td class="addr">0x70044945917051ce6DcCD244C4d4288FE14A9f28</td></tr>
+  </tbody>
+</table>
+<p>Published route checks in the source: 0x AllowanceHolder <span class="addr">0x0000000000001fF3684f28c67538d4D072C22734</span>; LI.FI Diamond <span class="addr">0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE</span>; 0x registry <span class="addr">0x00000000000004533Fe15556B1E086BB1A72cEae</span>. The Settler is checked dynamically, not permanently pinned. Permit2 <span class="addr">0x000000000022D473030F116dDEE9F6B43aC78BA3</span> is rejected in this documented commerce path.</p>
+<h3 id="sources">Sources and document status</h3>
+<p>Technical source: KNOAD Wallet technical white paper, Cronosynthesis, 16 October 2026. This narrative edition was revised on 21 October 2026. Spec 1.4 is the normative contract text.</p>
+<p>External context (not evidence that KNOAD is secure):</p>
+<p>[1] FBI Internet Crime Complaint Center, Criminals Use Generative Artificial Intelligence to Facilitate Financial Fraud, 3 December 2024. https://www.ic3.gov/PSA/2024/PSA241203</p>
+<p>[2] NIST National Cybersecurity Center of Excellence, Frequently Asked Questions about Post-Quantum Cryptography. https://pages.nist.gov/nccoe-migration-post-quantum-cryptography/</p>
+</body>
+</html>

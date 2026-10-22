@@ -17,6 +17,7 @@ export function ActivityScreen(props: {
   onAuto: (next: boolean) => void;
   onSpeed: () => void;
   onCancel: () => void;
+  onCancelOffer: (item: ActivityEntry) => void;
   onFix: (recommend: "speed" | "cancel") => void;
 }) {
   const [gas, setGas] = useState<{ base: bigint; priority: bigint; maxFee: bigint } | null>(null);
@@ -60,13 +61,13 @@ export function ActivityScreen(props: {
         onBack={() => setOpenId(null)}
       />
     ) : (
-      <SettledDetail item={open} onBack={() => setOpenId(null)} />
+      <SettledDetail item={open} onBack={() => setOpenId(null)} onCancelOffer={props.onCancelOffer} />
     );
   }
 
   return (
     <View style={styles.wrap}>
-      <PageTitle title="Activity" subtitle="Sends and received NFTs." />
+      <PageTitle title="Activity" subtitle="Sends, offers, and received NFTs." />
       {rows.length === 0 ? <Text style={styles.body}>No activity yet.</Text> : null}
       {rows.map((item) => (
         <Pressable key={item.id} onPress={() => setOpenId(item.id)} accessibilityRole="button">
@@ -147,24 +148,32 @@ function PendingDetail(props: {
   );
 }
 
-function SettledDetail(props: { item: ActivityEntry; onBack: () => void }) {
+function SettledDetail(props: { item: ActivityEntry; onBack: () => void; onCancelOffer: (item: ActivityEntry) => void }) {
   const item = props.item;
   const chain = getChain(item.chainId);
   const tx = item.txHash;
+  const standing = offerActive(item);
   return (
     <View style={styles.wrap}>
       <BackRow onPress={props.onBack} />
-      <PageTitle title={labelFor(item)} subtitle={statusWord(item.status)} />
+      <PageTitle title={labelFor(item)} subtitle={statusWord(item)} />
       <View style={styles.card}>
         <Detail icon="asset" label="Network" value={chain?.name ?? "Network"} chainId={item.chainId} />
         {item.nonce ? <Detail icon="nonce" label="Nonce" value={item.nonce} /> : null}
         <Detail icon="asset" label="Amount" value={item.amount && item.asset ? `${item.amount} ${item.asset}` : "—"} symbol={item.asset} />
-        <Detail icon="hash" label="Status" value={statusWord(item.status)} />
+        {item.kind === "offer" && item.to && item.to !== "revoke" ? <Detail icon="asset" label="For" value={item.to} /> : null}
+        {item.kind === "offer" && item.toName ? <Detail icon="clock" label="Ends" value={item.toName} /> : null}
+        <Detail icon="hash" label="Status" value={statusWord(item)} />
         <Pressable onPress={() => void Clipboard.setStringAsync(item.hash)}>
           <Detail icon="hash" label="Operation hash" value={shortAddress(item.hash)} />
         </Pressable>
       </View>
       <Text style={styles.body}>{explain(item)}</Text>
+      {standing ? (
+        <Pressable style={styles.cancelOffer} onPress={() => props.onCancelOffer(item)} accessibilityRole="button">
+          <Text style={styles.cancelOfferText}>Cancel offer</Text>
+        </Pressable>
+      ) : null}
       {tx && chain?.explorer ? (
         <Pressable onPress={() => void Linking.openURL(`${chain.explorer}/tx/${tx}`)}>
           <Text style={styles.explorer}>View on explorer</Text>
@@ -203,7 +212,27 @@ function rowsFor(log: ActivityEntry[], waiting: { chainId: number; pending: Pend
   ];
 }
 
+function offerEnded(item: ActivityEntry): boolean {
+  return item.kind === "offer" && item.to !== "revoke" && typeof item.expiry === "number" && item.expiry * 1000 <= Date.now();
+}
+
+function offerActive(item: ActivityEntry): boolean {
+  return item.kind === "offer" && item.to !== "revoke" && item.status === "included" && Boolean(item.digest) && !offerEnded(item);
+}
+
 function explain(item: ActivityEntry): string {
+  if (item.kind === "offer" && item.to === "revoke") {
+    if (item.status === "failed") return "The cancel did not go through. The offer can still be accepted.";
+    if (item.status === "included") return "Cancelled. The offer can no longer be accepted.";
+    return "Cancel is waiting for the network.";
+  }
+  if (item.kind === "offer") {
+    if (item.status === "cancelled") return "Cancelled. The offer can no longer be accepted.";
+    if (item.status === "failed") return "The offer was not saved. It stops working after your next transaction.";
+    if (item.status === "included" && offerEnded(item)) return "This offer has ended.";
+    if (item.status === "included") return "This offer stays up after other transactions, until it ends or you cancel it.";
+    return "Saving this offer.";
+  }
   const reason = (item.reason ?? "").trim();
   const generic = !reason || reason === "0x" || reason.startsWith("0x") || /execution reverted/i.test(reason);
   if (item.status === "failed") {
@@ -216,11 +245,12 @@ function explain(item: ActivityEntry): string {
   return "This phone has no replacement waiting for this send.";
 }
 
-function statusWord(status: ActivityEntry["status"]): string {
-  if (status === "included") return "Included";
-  if (status === "failed") return "Failed";
-  if (status === "cancelled") return "Cancelled";
-  if (status === "replaced") return "Replaced";
+function statusWord(item: ActivityEntry): string {
+  if (item.kind === "offer" && item.to !== "revoke" && item.status === "included") return offerEnded(item) ? "Ended" : "Active";
+  if (item.status === "included") return "Included";
+  if (item.status === "failed") return "Failed";
+  if (item.status === "cancelled") return "Cancelled";
+  if (item.status === "replaced") return "Replaced";
   return "Pending";
 }
 
@@ -248,7 +278,7 @@ export function ActivityRow(props: { item: ActivityEntry }) {
         <Text style={styles.rowTitle} numberOfLines={1}>
           {labelFor(item)}
         </Text>
-        <Text style={styles.body} numberOfLines={1}>{`${getChain(item.chainId)?.name ?? "Network"} · ${statusWord(item.status)}`}</Text>
+        <Text style={styles.body} numberOfLines={1}>{`${getChain(item.chainId)?.name ?? "Network"} · ${statusWord(item)}`}</Text>
       </View>
       <Icon name="chevronRight" size={16} color={theme.textDim} />
     </View>
@@ -276,6 +306,11 @@ function labelFor(item: ActivityEntry): string {
   if (item.kind === "swap") return `Swap ${amount} to ${item.to ?? "token"}`;
   if (item.kind === "bridge") return `Bridge ${amount} to ${item.to ?? "another chain"}`;
   if (item.kind === "site") return item.asset ?? "Site transaction";
+  if (item.kind === "offer") {
+    if (item.to === "revoke") return "Cancel offer";
+    const amount = item.amount && item.asset ? `${item.amount} ${item.asset}` : "WETH";
+    return `Offer ${amount}`;
+  }
   if (item.kind === "nft") {
     const label = [item.asset, item.amount].filter(Boolean).join(" ");
     return item.toName ? `Send ${label} to ${item.toName}` : `Received ${label}`;
@@ -311,6 +346,15 @@ const styles = StyleSheet.create({
   auto: { flexDirection: "row", gap: 10, alignItems: "center" },
   back: { flexDirection: "row", alignItems: "center", gap: 6 },
   explorer: { color: theme.mint, fontFamily: theme.font.medium, fontSize: 14 },
+  cancelOffer: {
+    borderWidth: 1,
+    borderColor: theme.danger,
+    borderRadius: theme.radius.lg,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelOfferText: { color: theme.danger, fontFamily: theme.font.semibold, fontSize: 15 },
   logRow: {
     flexDirection: "row",
     gap: 10,
